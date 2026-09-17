@@ -18,20 +18,24 @@ export async function initializeDatabase() {
       role TEXT NOT NULL,
       status TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL
-    );
+    )
+  `);
+  await sql.query(`
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires BIGINT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
-    CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions (expires);
+    )
+  `);
+  await sql.query('CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id)');
+  await sql.query('CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions (expires)');
+  await sql.query(`
     CREATE TABLE IF NOT EXISTS audit (
       id BIGSERIAL PRIMARY KEY,
       actor TEXT,
       target TEXT,
       action TEXT,
       created_at TIMESTAMPTZ NOT NULL
-    );
+    )
   `);
 }
