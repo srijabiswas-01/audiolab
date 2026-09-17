@@ -1,0 +1,55 @@
+.startup-loader {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; overflow: hidden;
+  background: var(--background, #f9f8fc); color: var(--ink, #28253d);
+  opacity: 1; transition: opacity .28s ease, visibility .28s;
+}
+.startup-loader.is-ready { opacity: 0; visibility: hidden; pointer-events: none; }
+.splash-glow {
+  position: absolute; width: min(750px, 120vw); aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, #f8b2b225, #af719d0d 42%, transparent 68%);
+  pointer-events: none;
+}
+.splash-content { position: relative; text-align: center; padding: 32px 24px; }
+.splash-emblem { width: 120px; height: 120px; margin: 0 auto 30px; position: relative; display: grid; place-items: center; }
+.splash-orbit { position: absolute; inset: 0; border: 1px solid #af719d30; border-radius: 50%; animation: splash-orbit 9s linear infinite; }
+.splash-orbit:before { content: ''; position: absolute; left: 11px; top: 13px; width: 8px; height: 8px; background: #f8b2b2; border-radius: 50%; box-shadow: 0 0 0 5px #f8b2b21c; }
+.splash-orbit:after { content: ''; position: absolute; inset: 10px; border-radius: 50%; border: 1px dashed #8b639b24; }
+.splash-wave { display: flex; align-items: center; justify-content: center; gap: 5px; width: 76px; height: 76px; border-radius: 23px; background: #403d88; box-shadow: 0 12px 34px #403d881c; }
+.splash-wave i { display: block; width: 5px; height: 16px; border-radius: 5px; background: #f8b2b2; animation: splash-wave 1.2s ease-in-out infinite; }
+.splash-wave i:nth-child(2) { height: 31px; background: #d99dba; animation-delay: -.2s; }
+.splash-wave i:nth-child(3) { height: 42px; animation-delay: -.4s; }
+.splash-wave i:nth-child(4) { height: 26px; background: #d99dba; animation-delay: -.6s; }
+.splash-wave i:nth-child(5) { height: 12px; animation-delay: -.8s; }
+.splash-wordmark { font-size: 40px; font-weight: 750; letter-spacing: -2px; }
+.splash-wordmark span { font-weight: 400; }
+.splash-wordmark b { color: #af719d; }
+.splash-eyebrow { font-size: 8px; letter-spacing: 2.8px; color: #9b80a7; margin: 12px 0 34px; }
+.splash-content h1 { font-size: clamp(20px, 4vw, 27px); font-weight: 500; letter-spacing: -.7px; }
+.splash-content>p { color: #998aa5; font-size: 12px; margin-top: 13px; line-height: 1.8; }
+.splash-progress { width: 140px; height: 3px; background: #eae2ef; border-radius: 5px; margin: 28px auto 0; overflow: hidden; }
+.splash-progress span { display: block; width: 50%; height: 100%; background: linear-gradient(90deg, #8b639b, #af719d, #f8b2b2); border-radius: inherit; animation: splash-progress 1.5s ease-in-out infinite; }
+.splash-footer { position: absolute; bottom: max(30px, env(safe-area-inset-bottom)); font-size: 10px; letter-spacing: .6px; color: #ad9db7; padding: 0 15px; text-align: center; }
+#startup-retry { margin-top: 24px; }
+#startup-retry[hidden] { display: none; }
+.startup-loader.has-error .splash-progress { display: none; }
+.startup-loader.has-error :is(.splash-orbit,.splash-wave i) { animation: none; }
+:root[data-theme="dark"] .splash-glow { background: radial-gradient(circle, #8b639b22, #403d8812 45%, transparent 68%); }
+:root[data-theme="dark"] .splash-wave { box-shadow: 0 14px 45px #0003; }
+:root[data-theme="dark"] :is(.splash-eyebrow,.splash-content>p,.splash-footer) { color: #baa5c8; }
+:root[data-theme="dark"] .splash-progress { background: #3c304b; }
+@keyframes splash-wave { 0%,100% { transform: scaleY(.55); } 50% { transform: scaleY(1); } }
+@keyframes splash-orbit { to { transform: rotate(360deg); } }
+@keyframes splash-progress { 0% { transform: translateX(-110%); } 100% { transform: translateX(310%); } }
+@media (prefers-reduced-motion: reduce) {
+  .startup-loader { transition: none; }
+  .splash-orbit,.splash-wave i,.splash-progress span { animation: none; }
+  .splash-progress span { width: 100%; }
+}
+@media (max-height: 520px) {
+  .splash-emblem { width: 85px; height: 85px; margin-bottom: 12px; }
+  .splash-wave { width: 58px; height: 58px; border-radius: 18px; }
+  .splash-eyebrow { margin: 8px 0 18px; }
+  .splash-content { padding: 15px; }
+  .splash-footer { bottom: 12px; font-size: 8px; }
+}

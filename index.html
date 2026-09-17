@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#403D88"><meta name="description" content="Your sound, reimagined. Analyze, edit, and remix audio in your personal AudioLab workspace.">
+  <title>AudioLab — Your sound, reimagined.</title>
+  <script src="/theme.js"></script>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/loader.css">
+</head>
+<body>
+  <section id="startup-loader" class="startup-loader" aria-label="AudioLab is loading">
+    <div class="splash-glow" aria-hidden="true"></div>
+    <div class="splash-content">
+      <div class="splash-emblem" aria-hidden="true"><div class="splash-orbit"></div><div class="splash-wave"><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="splash-wordmark">audio<span>lab</span><b>.</b></div>
+      <div class="splash-eyebrow">YOUR SOUND, REIMAGINED</div>
+      <h1>Good things are taking shape.</h1>
+      <p id="startup-status" role="status" aria-live="polite">Opening your creative space…</p>
+      <div class="splash-progress" aria-hidden="true"><span></span></div>
+      <button id="startup-retry" class="button primary" hidden>Try again</button>
+    </div>
+    <p class="splash-footer">A little science. A lot of sound.</p>
+  </section>
+  <div id="app" aria-busy="true" inert></div>
+  <noscript><style>#startup-loader{display:none}</style><p class="startup-error">Enable JavaScript to open AudioLab and use its audio tools.</p></noscript>
+  <div id="toast-region" role="status" aria-live="polite"></div>
+  <dialog id="modal"></dialog>
+  <input id="file-input" type="file" accept="audio/*,video/mp4,video/webm,video/quicktime" hidden>
+  <script type="module" src="/bootstrap.js"></script>
+</body>
+</html>
