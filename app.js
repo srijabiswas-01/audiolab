@@ -41,6 +41,8 @@ const paths = {
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   logout: '<path d="M9 4H4v16h5m6-12 4 4-4 4M9 12h11"/>',
   activity: '<path d="M2 12h4l3-8 6 16 3-8h4"/>',
+  eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
+  eyeOff: '<path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A11.7 11.7 0 0 1 12 5c6.5 0 10 7 10 7a18.3 18.3 0 0 1-3.2 4.1M6.2 6.2C3.6 8 2 12 2 12s3.5 7 10 7a11.9 11.9 0 0 0 3.1-.4"/>',
 };
 const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.wave}</svg>`;
 const engine = new AudioEngine();
@@ -249,10 +251,13 @@ async function importFile(file) {
     await database('projects','put',record);await refreshLibrary();setProject(record,buffer,[{id:'original',name:'Original audio',buffer,gain:1,pan:0,muted:false,solo:false,color:'#AF719D'}]);state.page='workspace';render();toast('Your sound is in. Make it yours.');
   }finally{state.loading=false;$('#file-input').value='';}
 }
+function passwordField(name, label, autocomplete, confirmation = false) {
+  return `<label>${label}<span class="password-field"><input id="auth-${name}" name="${name}" type="password" required minlength="10" maxlength="128" autocomplete="${autocomplete}" placeholder="At least 10 characters"${confirmation ? ' aria-describedby="password-match-help"' : ''}><button class="password-toggle" type="button" data-action="toggle-password" data-target="auth-${name}" aria-label="Show ${label.toLowerCase()}" aria-pressed="false">${icon('eye')}</button></span>${confirmation ? '<small id="password-match-help">Enter the same password again.</small>' : ''}</label>`;
+}
 function showAuth(){
   if(state.user){showModal(`<div class="modal-symbol">${icon('shield')}</div><h2>Your little corner of AudioLab.</h2><p>Signed in as <strong>${escapeHtml(state.user.name)}</strong>.</p><div class="account-modal-actions"><button class="button primary" data-action="account-settings">Account settings</button><button class="button secondary" data-action="logout">Sign out</button></div>`);return;}
   const register=state.authMode==='register';
-  showModal(`<div class="modal-symbol">${icon('wave')}</div><div class="eyebrow">WELCOME TO YOUR CREATIVE SPACE</div><h2>${register?(state.setupRequired?'Make yourself at home.':'Find your sound with us.'):'Good to have you back.'}</h2><p>${state.setupRequired?'The first account becomes the administrator of this local workspace.':register?'New accounts need administrator approval before signing in.':'Sign in to import audio and save your projects on this device.'}</p><form id="auth-form">${register?'<label>Your name<input name="name" required maxlength="80" autocomplete="name" placeholder="Jamie Lee"></label>':''}<label>Email address<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label><label>Password<input name="password" type="password" required minlength="10" maxlength="128" autocomplete="${register?'new-password':'current-password'}" placeholder="At least 10 characters"></label><div class="form-error" role="alert"></div><button class="button primary full-width" type="submit">${register?'Create account':'Sign in'} ${icon('arrow')}</button></form><div class="auth-switch">${register?'Already have an account?':'New here?'} <button class="text-button" data-action="switch-auth">${register?'Sign in':'Create an account'}</button></div>`);
+  showModal(`<div class="modal-symbol">${icon('wave')}</div><div class="eyebrow">WELCOME TO YOUR CREATIVE SPACE</div><h2>${register?(state.setupRequired?'Make yourself at home.':'Find your sound with us.'):'Good to have you back.'}</h2><p>${state.setupRequired?'The first account becomes the administrator of this local workspace.':register?'New accounts need administrator approval before signing in.':'Sign in to import audio and save your projects on this device.'}</p><form id="auth-form">${register?'<label>Your name<input name="name" required maxlength="80" autocomplete="name" placeholder="Jamie Lee"></label>':''}<label>Email address<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>${passwordField('password', 'Password', register ? 'new-password' : 'current-password')}${register ? passwordField('confirmPassword', 'Confirm password', 'new-password', true) : ''}<div class="form-error" role="alert"></div><button class="button primary full-width" type="submit">${register?'Create account':'Sign in'} ${icon('arrow')}</button></form><div class="auth-switch">${register?'Already have an account?':'New here?'} <button class="text-button" data-action="switch-auth">${register?'Sign in':'Create an account'}</button></div>`);
 }
 function showExport(){
   if(!state.mix)return;
@@ -290,6 +295,7 @@ document.addEventListener('click',async event=>{
     else if(action==='reset-mix'){state.tracks.forEach(t=>{t.gain=1;t.pan=0;t.muted=false;t.solo=false;});engine.update(state.tracks);await saveProject();render();toast('A fresh start. Mix reset.');}
     else if(action==='account') {state.authMode=state.setupRequired?'register':'login';showAuth();}
     else if(action==='switch-auth'){state.authMode=state.authMode==='login'?'register':'login';showAuth();}
+    else if(action==='toggle-password'){const input=$(`#${button.dataset.target}`);const revealed=input.type==='text';input.type=revealed?'password':'text';button.setAttribute('aria-label',`${revealed?'Show':'Hide'} ${input.closest('label').childNodes[0].textContent.trim().toLowerCase()}`);button.setAttribute('aria-pressed',String(!revealed));button.innerHTML=icon(revealed?'eye':'eyeOff');input.focus();}
     else if(action==='logout'){await api('/api/logout',{});state.user=null;state.page='workspace';closeModal();await refreshLibrary();await loadDemo();render();toast('Signed out. Your projects stay on this device.');}
     else if(action==='account-settings'){closeModal();state.page='settings';render();}
     else if(action==='export')showExport();
@@ -327,6 +333,8 @@ document.addEventListener('submit',async event=>{
   event.preventDefault();const form=event.target;const button=$('button[type="submit"]',form);if(!button)return;const values=Object.fromEntries(new FormData(form));const error=$('.form-error',form);button.disabled=true;
   try{
     if(form.id==='auth-form'){
+      if(state.authMode==='register'&&values.password!==values.confirmPassword)throw new Error('Passwords do not match.');
+      delete values.confirmPassword;
       const result=await api(state.authMode==='register'?'/api/register':'/api/login',values);
       if(result.pending){showModal(`<div class="modal-symbol">${icon('clock')}</div><h2>You’re on the list.</h2><p>${escapeHtml(result.message)}</p><button class="button primary full-width" data-action="close-modal">Explore the demo</button>`);}
       else{state.user=result.user;state.setupRequired=false;await refreshLibrary();await loadDemo();closeModal();render();toast(`Welcome, ${state.user.name.split(' ')[0]}. Your studio is ready.`);}
