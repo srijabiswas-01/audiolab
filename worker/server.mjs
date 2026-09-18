@@ -38,13 +38,24 @@ function run(args) {
 async function audioFromYouTube(url) {
   const directory = await mkdtemp(path.join(tmpdir(), 'audiolab-'));
   try {
-    const args = ['--no-playlist', '--no-progress', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--extractor-args', `youtube:player_client=${cookiesFile ? 'web_creator' : 'web_safari'}`, '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s')];
+    const clients = cookiesFile ? ['web_creator', 'tv_embedded', 'android', 'web'] : ['web_safari', 'tv_embedded', 'android', 'web'];
+    const args = ['--no-playlist', '--no-progress', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s')];
     if (cookiesFile) {
       const writableCookies = path.join(directory, 'youtube-cookies.txt');
       await copyFile(cookiesFile, writableCookies);
       args.push('--cookies', writableCookies);
     }
-    await run([...args, url]);
+    let lastError;
+    for (const client of clients) {
+      try {
+        await run([...args, '--extractor-args', `youtube:player_client=${client}`, url]);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) throw lastError;
     const filename = (await readdir(directory)).find(file => file.toLowerCase().endsWith('.wav'));
     if (!filename) fail('No compatible audio was produced.', 422);
     const file = path.join(directory, filename); if ((await stat(file)).size > 100 * 1024 ** 2) fail('The converted file is larger than 100 MB.', 422);
