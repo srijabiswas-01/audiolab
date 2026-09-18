@@ -68,7 +68,7 @@ export default async function handler(req, res) {
       const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
       return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false, urlImport: youtubeImportEnabled, youtubeImport: youtubeImportEnabled }, youtubeImportMissing });
     }
-    if (req.method === 'POST' && url.pathname === '/api/import/youtube-ticket') {
+    if (req.method === 'POST' && ['/api/youtube-ticket', '/api/import/youtube-ticket'].includes(url.pathname)) {
       const user = await current(req);
       if (!user || user.status !== 'active') fail('Sign in to import audio.', 401);
       if (!youtubeImportEnabled) fail('YouTube import is not configured for this deployment.', 503);

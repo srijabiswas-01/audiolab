@@ -88,7 +88,7 @@ ALLOWED_ORIGIN=https://your-vercel-domain.vercel.app
 
 Use one manually generated value for `YOUTUBE_WORKER_SECRET` in both Vercel and Render. The Render blueprint asks for this value instead of generating a separate secret, because the API and worker must share the same signing key. After setting `YOUTUBE_WORKER_URL` and the matching secret in Vercel, redeploy the Vercel project and confirm `/api/status` reports `youtubeImport: true`.
 
-The Vercel API authenticates the signed-in user and issues a five-minute, signed, single-import ticket. The browser presents that ticket directly to the worker, so converted audio never has to pass through Vercel. The worker validates the ticket, accepts only a single HTTPS YouTube video URL, rejects playlists, limits source duration to 10 minutes and output to 100 MB, then deletes temporary conversion files.
+The Vercel API authenticates the signed-in user and issues a five-minute, signed, single-import ticket from `/api/youtube-ticket`. The browser presents that ticket directly to the worker, so converted audio never has to pass through Vercel. The worker validates the ticket, accepts only a single HTTPS YouTube video URL, rejects playlists, limits source duration to 10 minutes and output to 100 MB, then deletes temporary conversion files.
 
 For local development only, install `yt-dlp` and FFmpeg on the machine running AudioLab, then enable the local worker:
 

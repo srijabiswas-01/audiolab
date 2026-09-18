@@ -248,7 +248,7 @@ async function importYouTube(url) {
   state.loading=true;
   try {
     toast('Fetching and converting your authorized source…');
-    const ticketResponse=await fetch('/api/import/youtube-ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    const ticketResponse=await fetch('/api/youtube-ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
     if(!ticketResponse.ok){const body=await ticketResponse.text();let result={};try{result=JSON.parse(body);}catch{}throw new Error(result.error||`Could not start the YouTube import (HTTP ${ticketResponse.status}).`);}
     const ticket=await ticketResponse.json();
     const response=await fetch(ticket.workerUrl,{headers:{Authorization:`Bearer ${ticket.token}`}});
