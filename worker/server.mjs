@@ -13,6 +13,10 @@ if (!secret || !allowedOrigin) throw new Error('YOUTUBE_WORKER_SECRET and ALLOWE
 
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function send(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); }
+function extractorMessage(stderr) {
+  const detail = String(stderr).split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('[debug]')).slice(-2).join(' ');
+  return detail ? `Could not import this YouTube video: ${detail.slice(0, 500)}` : 'Could not import this YouTube video.';
+}
 function validToken(value) {
   const [payload, signature] = String(value || '').split('.');
   if (!payload || !signature) return null;
@@ -23,17 +27,17 @@ function validToken(value) {
 }
 function run(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn('yt-dlp', args, { shell: false }); let stderr = '';
+    const child = spawn('python3', ['-m', 'yt_dlp', ...args], { shell: false }); let stderr = '';
     const timer = setTimeout(() => { child.kill('SIGKILL'); reject(Object.assign(new Error('Import timed out.'), { status: 504 })); }, 120000);
     child.stdout.resume(); child.stderr.on('data', part => { stderr += part; });
-    child.on('error', () => { clearTimeout(timer); reject(Object.assign(new Error('The import worker is unavailable.'), { status: 503 })); });
-    child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(Object.assign(new Error(stderr.includes('duration') ? 'Choose a video no longer than 10 minutes.' : 'Could not import this YouTube video.'), { status: 422 })); });
+    child.on('error', error => { clearTimeout(timer); reject(Object.assign(new Error(error.code === 'ENOENT' ? 'Python is unavailable in the import worker.' : 'The import worker is unavailable.'), { status: 503 })); });
+    child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(Object.assign(new Error(stderr.includes('duration') ? 'Choose a video no longer than 10 minutes.' : extractorMessage(stderr), { status: 422 })); });
   });
 }
 async function audioFromYouTube(url) {
   const directory = await mkdtemp(path.join(tmpdir(), 'audiolab-'));
   try {
-    await run(['--no-playlist', '--no-progress', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s'), url]);
+    await run(['--no-playlist', '--no-progress', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s'), url]);
     const filename = (await readdir(directory)).find(file => file.toLowerCase().endsWith('.wav'));
     if (!filename) fail('No compatible audio was produced.', 422);
     const file = path.join(directory, filename); if ((await stat(file)).size > 100 * 1024 ** 2) fail('The converted file is larger than 100 MB.', 422);
