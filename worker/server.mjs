@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -39,7 +39,11 @@ async function audioFromYouTube(url) {
   const directory = await mkdtemp(path.join(tmpdir(), 'audiolab-'));
   try {
     const args = ['--no-playlist', '--no-progress', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--extractor-args', 'youtube:player_client=web_safari', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s')];
-    if (cookiesFile) args.push('--cookies', cookiesFile);
+    if (cookiesFile) {
+      const writableCookies = path.join(directory, 'youtube-cookies.txt');
+      await copyFile(cookiesFile, writableCookies);
+      args.push('--cookies', writableCookies);
+    }
     await run([...args, url]);
     const filename = (await readdir(directory)).find(file => file.toLowerCase().endsWith('.wav'));
     if (!filename) fail('No compatible audio was produced.', 422);
