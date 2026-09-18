@@ -54,7 +54,10 @@ http.createServer(async (req, res) => {
   res.setHeader('Vary', 'Origin'); res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method === 'OPTIONS') { res.writeHead(origin === allowedOrigin ? 204 : 403, { 'Access-Control-Allow-Headers': 'Authorization', 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Max-Age': '300' }); return res.end(); }
   try {
-    if (req.method === 'GET' && new URL(req.url, 'http://localhost').pathname === '/health') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end('{"ok":true}'); }
+    if (req.method === 'GET' && new URL(req.url, 'http://localhost').pathname === '/health') {
+      const cookiesAvailable = Boolean(cookiesFile && await stat(cookiesFile).then(() => true).catch(() => false));
+      return send(res, 200, { ok: true, cookiesConfigured: Boolean(cookiesFile), cookiesAvailable });
+    }
     if (req.method !== 'GET' || new URL(req.url, 'http://localhost').pathname !== '/youtube') fail('Not found.', 404);
     if (origin !== allowedOrigin) fail('Origin rejected.', 403);
     const rawTicket = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1]; const ticket = validToken(rawTicket); if (!ticket) fail('Import ticket is invalid or expired.', 401);
