@@ -90,6 +90,8 @@ Use one manually generated value for `YOUTUBE_WORKER_SECRET` in both Vercel and 
 
 The Vercel API authenticates the signed-in user and issues a five-minute, signed, single-import ticket from `/api/youtube-ticket`. The browser presents that ticket directly to the worker, so converted audio never has to pass through Vercel. The worker validates the ticket, accepts only a single HTTPS YouTube video URL, rejects playlists, limits source duration to 10 minutes and output to 100 MB, then deletes temporary conversion files.
 
+If YouTube returns HTTP 403 from the worker host, configure an authorized Netscape-format browser cookie export as a Render secret file and set `YOUTUBE_COOKIES_FILE` to its mounted path. Do not commit or paste cookies into source control. Cookies should only be used for media the account owner is authorized to access.
+
 For local development only, install `yt-dlp` and FFmpeg on the machine running AudioLab, then enable the local worker:
 
 ```powershell
