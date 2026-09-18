@@ -46,7 +46,7 @@ const paths = {
 };
 const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.wave}</svg>`;
 const engine = new AudioEngine();
-const state = { page: 'workspace', tab: 'overview', user: null, setupRequired: false, projects: [], exports: [], project: null, tracks: [], mix: null, analysis: null, loop: false, zoom: 1, loading: false, authMode: 'login', activeTool: null, demo: null, modalReturnFocus: null, draft: null };
+const state = { page: 'workspace', tab: 'overview', user: null, setupRequired: false, capabilities: { youtubeImport: false }, projects: [], exports: [], project: null, tracks: [], mix: null, analysis: null, loop: false, zoom: 1, loading: false, authMode: 'login', activeTool: null, demo: null, modalReturnFocus: null, draft: null };
 const owner = () => state.user?.id || 'demo';
 const dbPromise = new Promise((resolve, reject) => {
   const request = indexedDB.open('audiolab-studio', 1);
@@ -233,7 +233,31 @@ setInterval(()=>{if(engine.playing)updatePlayback();},70);
 engine.onEnd=()=>{if(state.loop){engine.offset=0;engine.play(state.tracks,state.mix.duration).catch(e=>toast(e.message,true));}else updatePlayButton();};
 function updatePlayButton(){document.querySelectorAll('[data-action="play"]').forEach(b=>{b.innerHTML=icon(engine.playing?'pause':'play');b.setAttribute('aria-label',engine.playing?'Pause':'Play');});updatePlayback();}
 async function togglePlay(){if(!state.mix)return;if(engine.playing)engine.pause();else await engine.play(state.tracks,state.mix.duration);updatePlayButton();}
-function requestUpload(){if(!state.user){state.authMode=state.setupRequired?'register':'login';showAuth();return;}$('#file-input').click();}
+function requestUpload(){
+  if(!state.user){state.authMode=state.setupRequired?'register':'login';showAuth();return;}
+  const youtubeReady=state.capabilities.youtubeImport;
+  showModal(`<div class="modal-symbol">${icon('upload')}</div><div class="eyebrow">ADD A SOURCE</div><h2>Where is your sound?</h2><p>Choose a file from this device, or import a YouTube video you are allowed to use.</p><div class="source-options"><button class="button secondary full-width source-option" data-action="choose-file">${icon('folder')}<span><strong>Upload a file</strong><small>MP3, WAV, FLAC, MP4, WebM and more</small></span>${icon('arrow')}</button><button class="button secondary full-width source-option" data-action="youtube-source">${icon('music')}<span><strong>YouTube link</strong><small>${youtubeReady?'Import audio from an eligible YouTube video':'Available when the local import worker is enabled'}</small></span>${icon('arrow')}</button></div>`);
+}
+function showYouTubeSource(){
+  const ready=state.capabilities.youtubeImport;
+  showModal(`<div class="modal-symbol">${icon('music')}</div><div class="eyebrow">YOUTUBE SOURCE</div><h2>Bring in a video’s audio.</h2><p>Paste a single YouTube video link. Only import media that you own or are authorized to use.</p>${ready?`<form id="youtube-form"><label>YouTube video URL<input name="url" type="url" required maxlength="2048" autocomplete="url" placeholder="https://www.youtube.com/watch?v=..."></label><label class="consent-check"><input name="rightsConfirmed" type="checkbox" required> <span>I own this media or have permission to import it.</span></label><div class="info-box">The import worker converts one video at a time to WAV (up to 100 MB and 10 minutes), then the file is saved only in this browser.</div><div class="form-error" role="alert"></div><button class="button primary full-width" type="submit">${icon('download')} Import audio</button></form>`:`<div class="info-box"><strong>YouTube import is not configured on this deployment.</strong><br>Add the included media worker and its Vercel environment variables, then redeploy. The file-upload option is available now.</div><button class="button primary full-width" data-action="choose-file">${icon('upload')} Upload a file instead</button>`}`);
+}
+async function importYouTube(url) {
+  if(state.loading)throw new Error('Please wait for the current import to finish.');
+  state.loading=true;
+  try {
+    toast('Fetching and converting your authorized source…');
+    const ticketResponse=await fetch('/api/import/youtube-ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    if(!ticketResponse.ok){const result=await ticketResponse.json().catch(()=>({}));throw new Error(result.error||'Could not start the YouTube import.');}
+    const ticket=await ticketResponse.json();
+    const response=await fetch(ticket.workerUrl,{headers:{Authorization:`Bearer ${ticket.token}`}});
+    if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.error||'Could not import that YouTube video.');}
+    const blob=await response.blob();
+    const filename=(response.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/i)?.[1]||'youtube-audio.wav').replace(/[<>:"/\\|?*\u0000-\u001F]/g,'_');
+    state.loading=false;
+    await importFile(new File([blob],filename,{type:blob.type||'audio/wav'}));
+  } finally { state.loading=false; }
+}
 async function importFile(file) {
   if(!file)return;if(!state.user){showAuth();return;}if(state.loading)throw new Error('Please wait for the current file to finish.');
   const session = await api('/api/status');
@@ -286,6 +310,8 @@ document.addEventListener('click',async event=>{
     else if(action==='menu')$('#sidebar').classList.toggle('mobile-open');
     else if(action==='reload')location.reload();
     else if(action==='upload'){closeModal();requestUpload();}
+    else if(action==='choose-file'){closeModal();$('#file-input').click();}
+    else if(action==='youtube-source'){showYouTubeSource();}
     else if(action==='play')await togglePlay();
     else if(action==='restart')await engine.seek(0,state.tracks,state.mix.duration);
     else if(action==='skip')await engine.seek(Math.min(state.mix.duration,engine.position()+10),state.tracks,state.mix.duration);
@@ -339,6 +365,12 @@ document.addEventListener('submit',async event=>{
       if(result.pending){showModal(`<div class="modal-symbol">${icon('clock')}</div><h2>You’re on the list.</h2><p>${escapeHtml(result.message)}</p><button class="button primary full-width" data-action="close-modal">Explore the demo</button>`);}
       else{state.user=result.user;state.setupRequired=false;await refreshLibrary();await loadDemo();closeModal();render();toast(`Welcome, ${state.user.name.split(' ')[0]}. Your studio is ready.`);}
     }
+    if(form.id==='youtube-form'){
+      if(values.rightsConfirmed!=='on')throw new Error('Confirm that you have permission to import this media.');
+      button.innerHTML='<span class="spinner"></span> Importing audio…';
+      await importYouTube(values.url);
+      closeModal();
+    }
     if(form.id==='export-form'){
       button.innerHTML='<span class="spinner"></span> Rendering your sound…';
       const start=Number(values.start),end=Number(values.end);
@@ -352,7 +384,7 @@ document.addEventListener('submit',async event=>{
       await database('exports','put',record);await refreshLibrary();download(blob,record.name);closeModal();render();toast('Your mix is ready. Saved in Export center.');
     }
   }catch(e){if(error)error.textContent=e.message;else toast(e.message,true);}
-  finally{button.disabled=false;if(form.id==='export-form')button.innerHTML=`${icon('download')} Export & download`;}
+  finally{button.disabled=false;if(form.id==='export-form')button.innerHTML=`${icon('download')} Export & download`;if(form.id==='youtube-form')button.innerHTML=`${icon('download')} Import audio`;}
 });
 $('#file-input').addEventListener('change',event=>importFile(event.target.files[0]).catch(e=>toast(e.message,true)));
 document.addEventListener('dragover',event=>{event.preventDefault();$('#drop-zone')?.classList.add('dragging');});
@@ -364,7 +396,7 @@ $('#modal').addEventListener('click',event=>{if(event.target===$('#modal')){cons
 window.addEventListener('resize',drawAll);
 async function init(){
   try{
-    const status=await api('/api/status');state.user=status.user;state.setupRequired=status.setupRequired;
+    const status=await api('/api/status');state.user=status.user;state.setupRequired=status.setupRequired;state.capabilities=status.capabilities || state.capabilities;
     const loadingStatus = $('#startup-status');
     if (loadingStatus) loadingStatus.textContent = 'Gathering your projects…';
     await refreshLibrary();

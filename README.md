@@ -31,6 +31,7 @@ npm.cmd start
 - Original, synthesized 48-second demo with four independently playable layers: melody, drums, bass, and atmosphere. These are composed stems, not fabricated AI separation results.
 - Email/password registration, first-administrator setup from localhost, pending-user approval, login/logout, rejected and suspended accounts, session revocation, and an approval audit log.
 - Audio import through the browser, plus video files whose audio the browser can decode. Limit: 100 MB and 10 minutes per file. Codec support varies by browser.
+- Optional YouTube source import: the app can fetch one authorized YouTube video, convert its audio to WAV, and save the resulting file locally in the browser.
 - Actual waveform rendering, zoom, seeking, playback, repeat, and listening volume.
 - Analysis of decoded audio: duration, sample rate, channels, sample peak, RMS, and near-full-scale sample count.
 - Track level, stereo pan, mute, solo, reset, synchronized playback, and saved mix settings.
@@ -42,7 +43,7 @@ npm.cmd start
 
 1. Explore the demo without signing in.
 2. Click **New project** to create the first administrator account. There is no default password. First-admin creation only accepts a connection from localhost.
-3. Upload a supported audio or video file. Files are read and processed on your device.
+3. Select **New project**, then either upload a supported audio/video file or choose **YouTube link**. Files are saved in this browser after import.
 4. Open **Analysis** for measurements or **Remix studio** for track controls.
 5. Choose **Export audio** to trim, add fades, render, save, and download a WAV.
 6. Later registrations are pending until approved under **User approvals** in the admin sidebar.
@@ -51,7 +52,7 @@ npm.cmd start
 
 Account hashes, sessions, and approval logs are stored in Neon Postgres. Set `DATABASE_URL` in `.env` to the Neon connection string before starting the server. Passwords use salted scrypt; session cookies are HttpOnly and SameSite=Strict, with a 24-hour lifetime. The server limits authentication attempts, checks JSON request origins, and only serves explicitly allowed public files.
 
-Audio, project settings, and exports are stored in IndexedDB in the current browser, partitioned by the signed-in account identifier. Demo mix settings use localStorage. Audio files are **not uploaded to the server**. Different browsers and devices will not share project libraries. Browser storage is not a security boundary against someone with access to the browser profile or developer tools. Use separate browser/OS profiles on shared devices.
+Audio, project settings, and exports are stored in IndexedDB in the current browser, partitioned by the signed-in account identifier. Demo mix settings use localStorage. Local file audio is not uploaded to the server. When optional YouTube import is enabled, the server temporarily retrieves and converts the selected source, returns the WAV to the browser, then removes the temporary server file. Different browsers and devices will not share project libraries. Browser storage is not a security boundary against someone with access to the browser profile or developer tools. Use separate browser/OS profiles on shared devices.
 
 The 2 GB allowance is an application limit, not a guarantee of browser storage availability. Browser data may be cleared or evicted. Download important work separately. Export creates a new file and preserves the original. Track levels can exceed full scale; reduce them if a mix distorts. Listening volume affects preview only, not export.
 
@@ -61,11 +62,40 @@ These features have informative UI states, but **are not implemented processing 
 
 - AI vocal/instrument separation of uploaded music.
 - Automatic speech recognition, language identification, speaker diarization, and automatic subtitle generation.
-- YouTube or other remote URL imports.
+- Other remote URL imports (YouTube import is optional and described below).
 - MP3/FLAC encoding and universal video extraction.
 - LUFS/true-peak metering, tempo/key estimation, noise reduction, mastering, EQ, reverb, and automated quality recommendations.
 
 The demo does not stand in for processing uploaded audio. For real AI and universal media handling, add FFmpeg plus tested separation/ASR providers in background workers, with private object storage and a durable job queue. No external service keys are required or configured in this build.
+
+## YouTube import on Vercel
+
+The site flow is: YouTube link → WAV extraction → normal AudioLab project processing. It is intended only for media the user owns or is authorized to use.
+
+Vercel cannot run the extraction process or deliver large converted audio files reliably. Deploy the included [`worker`](worker) container to a container host (Railway, Render, or Google Cloud Run), then set these Vercel environment variables:
+
+```text
+YOUTUBE_WORKER_URL=https://your-worker.example.com
+YOUTUBE_WORKER_SECRET=a-long-random-shared-secret
+```
+
+Set matching worker variables:
+
+```text
+YOUTUBE_WORKER_SECRET=the-same-long-random-shared-secret
+ALLOWED_ORIGIN=https://your-vercel-domain.vercel.app
+```
+
+The Vercel API authenticates the signed-in user and issues a five-minute, signed, single-import ticket. The browser presents that ticket directly to the worker, so converted audio never has to pass through Vercel. The worker validates the ticket, accepts only a single HTTPS YouTube video URL, rejects playlists, limits source duration to 10 minutes and output to 100 MB, then deletes temporary conversion files.
+
+For local development only, install `yt-dlp` and FFmpeg on the machine running AudioLab, then enable the local worker:
+
+```powershell
+$env:YTDLP_ENABLED = 'true'
+npm.cmd start
+```
+
+If `yt-dlp` is not on `PATH`, set `YTDLP_PATH` to its executable path. Do not expose the local endpoint publicly. A public worker should additionally have rate limits, quotas, and abuse monitoring.
 
 This is a **local application foundation**, not a production internet deployment. Before public hosting, implement email verification and recovery, admin MFA, HTTPS, durable server-side project storage and access control, backups/retention, upload and worker sandboxing, and operational monitoring. The default listener is localhost. `HOST`, `PORT`, `DATA_DIR`, and `COOKIE_SECURE=true` are supported environment settings; changing the listener alone does not make the system production-ready.
 

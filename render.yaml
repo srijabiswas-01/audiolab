@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: audiolab-youtube-worker
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./worker/Dockerfile
+    dockerContext: ./worker
+    healthCheckPath: /health
+    envVars:
+      - key: YOUTUBE_WORKER_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGIN
+        sync: false
