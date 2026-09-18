@@ -70,7 +70,7 @@ The demo does not stand in for processing uploaded audio. For real AI and univer
 
 ## YouTube import on Vercel
 
-The site flow is: YouTube link → WAV extraction → normal AudioLab project processing. It is intended only for media the user owns or is authorized to use.
+The site flow is: YouTube link → audio-only stream extraction → WAV conversion → normal AudioLab project processing. It is intended only for media the user owns or is authorized to use.
 
 Vercel cannot run the extraction process or deliver large converted audio files reliably. Deploy the included [`worker`](worker) container to a container host (Railway, Render, or Google Cloud Run), then set these Vercel environment variables:
 

@@ -45,7 +45,7 @@ async function fetchYouTubeAudio(videoUrl) {
   const program = process.env.YTDLP_PATH || 'yt-dlp';
   try {
     await new Promise((resolve, reject) => {
-      const child = spawn(program, ['--no-playlist', '--no-progress', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', output, videoUrl], { shell: false, windowsHide: true });
+      const child = spawn(program, ['--no-playlist', '--no-progress', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', output, videoUrl], { shell: false, windowsHide: true });
       let stderr = ''; const timer = setTimeout(() => { child.kill(); reject(Object.assign(new Error('Import timed out.'), { status: 504 })); }, 120000);
       child.stderr.on('data', part => { stderr += part; });
       child.on('error', error => { clearTimeout(timer); reject(Object.assign(new Error(error.code === 'ENOENT' ? 'YouTube import is enabled, but yt-dlp is not installed or YTDLP_PATH is incorrect.' : 'Could not start the YouTube import worker.'), { status: 503 })); });
