@@ -15,6 +15,10 @@ const fail = (message, status = 400) => { throw Object.assign(new Error(message)
 const workerUrl = process.env.YOUTUBE_WORKER_URL?.replace(/\/$/, '');
 const workerSecret = process.env.YOUTUBE_WORKER_SECRET;
 const youtubeImportEnabled = Boolean(workerUrl && workerSecret);
+const youtubeImportMissing = [
+  !workerUrl && 'YOUTUBE_WORKER_URL',
+  !workerSecret && 'YOUTUBE_WORKER_SECRET'
+].filter(Boolean);
 function youtubeUrl(value) {
   let url;
   try { url = new URL(String(value)); } catch { fail('Enter a valid YouTube video URL.'); }
@@ -62,7 +66,7 @@ export default async function handler(req, res) {
     }
     if (req.method === 'GET' && url.pathname === '/api/status') {
       const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
-      return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false, urlImport: youtubeImportEnabled, youtubeImport: youtubeImportEnabled } });
+      return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false, urlImport: youtubeImportEnabled, youtubeImport: youtubeImportEnabled }, youtubeImportMissing });
     }
     if (req.method === 'POST' && url.pathname === '/api/import/youtube-ticket') {
       const user = await current(req);

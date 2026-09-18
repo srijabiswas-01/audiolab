@@ -46,7 +46,7 @@ const paths = {
 };
 const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.wave}</svg>`;
 const engine = new AudioEngine();
-const state = { page: 'workspace', tab: 'overview', user: null, setupRequired: false, capabilities: { youtubeImport: false }, projects: [], exports: [], project: null, tracks: [], mix: null, analysis: null, loop: false, zoom: 1, loading: false, authMode: 'login', activeTool: null, demo: null, modalReturnFocus: null, draft: null };
+const state = { page: 'workspace', tab: 'overview', user: null, setupRequired: false, capabilities: { youtubeImport: false }, youtubeImportMissing: [], projects: [], exports: [], project: null, tracks: [], mix: null, analysis: null, loop: false, zoom: 1, loading: false, authMode: 'login', activeTool: null, demo: null, modalReturnFocus: null, draft: null };
 const owner = () => state.user?.id || 'demo';
 const dbPromise = new Promise((resolve, reject) => {
   const request = indexedDB.open('audiolab-studio', 1);
@@ -240,7 +240,8 @@ function requestUpload(){
 }
 function showYouTubeSource(){
   const ready=state.capabilities.youtubeImport;
-  showModal(`<div class="modal-symbol">${icon('music')}</div><div class="eyebrow">YOUTUBE SOURCE</div><h2>Bring in a video’s audio.</h2><p>Paste a single YouTube video link. Only import media that you own or are authorized to use.</p>${ready?`<form id="youtube-form"><label>YouTube video URL<input name="url" type="url" required maxlength="2048" autocomplete="url" placeholder="https://www.youtube.com/watch?v=..."></label><label class="consent-check"><input name="rightsConfirmed" type="checkbox" required> <span>I own this media or have permission to import it.</span></label><div class="info-box">The import worker converts one video at a time to WAV (up to 100 MB and 10 minutes), then the file is saved only in this browser.</div><div class="form-error" role="alert"></div><button class="button primary full-width" type="submit">${icon('download')} Import audio</button></form>`:`<div class="info-box"><strong>YouTube import is not configured on this deployment.</strong><br>Add the included media worker and its Vercel environment variables, then redeploy. The file-upload option is available now.</div><button class="button primary full-width" data-action="choose-file">${icon('upload')} Upload a file instead</button>`}`);
+  const missing=state.youtubeImportMissing?.length?` Missing: ${state.youtubeImportMissing.join(', ')}.`:'';
+  showModal(`<div class="modal-symbol">${icon('music')}</div><div class="eyebrow">YOUTUBE SOURCE</div><h2>Bring in a video’s audio.</h2><p>Paste a single YouTube video link. Only import media that you own or are authorized to use.</p>${ready?`<form id="youtube-form"><label>YouTube video URL<input name="url" type="url" required maxlength="2048" autocomplete="url" placeholder="https://www.youtube.com/watch?v=..."></label><label class="consent-check"><input name="rightsConfirmed" type="checkbox" required> <span>I own this media or have permission to import it.</span></label><div class="info-box">The import worker converts one video at a time to WAV (up to 100 MB and 10 minutes), then the file is saved only in this browser.</div><div class="form-error" role="alert"></div><button class="button primary full-width" type="submit">${icon('download')} Import audio</button></form>`:`<div class="info-box"><strong>YouTube import is not configured on this deployment.</strong><br>Set ${escapeHtml(missing||'YOUTUBE_WORKER_URL and YOUTUBE_WORKER_SECRET')} in Vercel, using the same secret as the Render worker, then redeploy. The file-upload option is available now.</div><button class="button primary full-width" data-action="choose-file">${icon('upload')} Upload a file instead</button>`}`);
 }
 async function importYouTube(url) {
   if(state.loading)throw new Error('Please wait for the current import to finish.');
@@ -396,7 +397,7 @@ $('#modal').addEventListener('click',event=>{if(event.target===$('#modal')){cons
 window.addEventListener('resize',drawAll);
 async function init(){
   try{
-    const status=await api('/api/status');state.user=status.user;state.setupRequired=status.setupRequired;state.capabilities=status.capabilities || state.capabilities;
+    const status=await api('/api/status');state.user=status.user;state.setupRequired=status.setupRequired;state.capabilities=status.capabilities || state.capabilities;state.youtubeImportMissing=status.youtubeImportMissing || [];
     const loadingStatus = $('#startup-status');
     if (loadingStatus) loadingStatus.textContent = 'Gathering your projects…';
     await refreshLibrary();

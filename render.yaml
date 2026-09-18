@@ -9,6 +9,6 @@ services:
     healthCheckPath: /health
     envVars:
       - key: YOUTUBE_WORKER_SECRET
-        generateValue: true
+        sync: false
       - key: ALLOWED_ORIGIN
         sync: false
