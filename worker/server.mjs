@@ -31,7 +31,7 @@ function run(args) {
     const timer = setTimeout(() => { child.kill('SIGKILL'); reject(Object.assign(new Error('Import timed out.'), { status: 504 })); }, 120000);
     child.stdout.resume(); child.stderr.on('data', part => { stderr += part; });
     child.on('error', error => { clearTimeout(timer); reject(Object.assign(new Error(error.code === 'ENOENT' ? 'Python is unavailable in the import worker.' : 'The import worker is unavailable.'), { status: 503 })); });
-    child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(Object.assign(new Error(stderr.includes('duration') ? 'Choose a video no longer than 10 minutes.' : extractorMessage(stderr), { status: 422 })); });
+    child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(Object.assign(new Error(stderr.includes('duration') ? 'Choose a video no longer than 10 minutes.' : extractorMessage(stderr)), { status: 422 })); });
   });
 }
 async function audioFromYouTube(url) {
