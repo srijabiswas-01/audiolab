@@ -38,7 +38,7 @@ function run(args) {
 async function audioFromYouTube(url) {
   const directory = await mkdtemp(path.join(tmpdir(), 'audiolab-'));
   try {
-    const args = ['--no-playlist', '--no-progress', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--extractor-args', 'youtube:player_client=web_safari', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s')];
+    const args = ['--no-playlist', '--no-progress', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--extractor-args', `youtube:player_client=${cookiesFile ? 'web_creator' : 'web_safari'}`, '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s')];
     if (cookiesFile) {
       const writableCookies = path.join(directory, 'youtube-cookies.txt');
       await copyFile(cookiesFile, writableCookies);
