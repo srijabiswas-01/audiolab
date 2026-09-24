@@ -1,9 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { sql, initializeDatabase } from './db.mjs';
@@ -31,36 +28,6 @@ async function jsonBody(req) {
 }
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function send(res, status, value, headers = {}) { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers }); res.end(JSON.stringify(value)); }
-const youtubeImportEnabled = process.env.YTDLP_ENABLED === 'true';
-function youtubeUrl(value) {
-  let url;
-  try { url = new URL(String(value)); } catch { fail('Enter a valid YouTube video URL.'); }
-  const host = url.hostname.toLowerCase().replace(/^www\./, '');
-  if (url.protocol !== 'https:' || !['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) fail('Use a youtube.com or youtu.be HTTPS link.');
-  if (!url.pathname || (host !== 'youtu.be' && !url.searchParams.get('v') && !url.pathname.startsWith('/shorts/'))) fail('Use a link to one YouTube video.');
-  return url.href;
-}
-async function fetchYouTubeAudio(videoUrl) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'audiolab-youtube-'));
-  const output = path.join(directory, '%(id)s.%(ext)s');
-  const program = process.env.YTDLP_PATH || 'yt-dlp';
-  try {
-    await new Promise((resolve, reject) => {
-      const child = spawn(program, ['--no-playlist', '--no-progress', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', output, videoUrl], { shell: false, windowsHide: true });
-      let stderr = ''; const timer = setTimeout(() => { child.kill(); reject(Object.assign(new Error('Import timed out.'), { status: 504 })); }, 120000);
-      child.stderr.on('data', part => { stderr += part; });
-      child.on('error', error => { clearTimeout(timer); reject(Object.assign(new Error(error.code === 'ENOENT' ? 'YouTube import is enabled, but yt-dlp is not installed or YTDLP_PATH is incorrect.' : 'Could not start the YouTube import worker.'), { status: 503 })); });
-      child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(Object.assign(new Error(stderr.includes('duration') ? 'Choose a video no longer than 10 minutes.' : 'Could not import this YouTube video. Confirm the link, availability, and your permission to use it.'), { status: 422 })); });
-    });
-    const files = await readdir(directory);
-    const audio = files.find(file => file.toLowerCase().endsWith('.wav'));
-    if (!audio) fail('The import worker did not create a WAV file.', 422);
-    const audioPath = path.join(directory, audio); const info = await stat(audioPath);
-    if (info.size > 100 * 1024 ** 2) fail('The converted file is larger than 100 MB.', 422);
-    return { directory, audioPath, filename: audio.replace(/[^a-zA-Z0-9._ -]/g, '_') };
-  } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
-}
-
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -76,28 +43,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'GET' && url.pathname === '/api/status') {
         const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
-        return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false, urlImport: youtubeImportEnabled, youtubeImport: youtubeImportEnabled } });
-      }
-      if (req.method === 'POST' && ['/api/youtube-ticket', '/api/import/youtube-ticket'].includes(url.pathname)) {
-        const user = await current(req);
-        if (!user || user.status !== 'active') fail('Sign in to import audio.', 401);
-        if (!youtubeImportEnabled) fail('YouTube import is not enabled on this server.', 503);
-        const { url: source } = await jsonBody(req);
-        youtubeUrl(source);
-        return send(res, 200, { workerUrl: '/api/import/youtube', method: 'POST', body: { url: source } });
-      }
-      if (req.method === 'POST' && url.pathname === '/api/import/youtube') {
-        const user = await current(req);
-        if (!user || user.status !== 'active') fail('Sign in to import audio.', 401);
-        if (!youtubeImportEnabled) fail('YouTube import is not enabled on this server.', 503);
-        const { url: source } = await jsonBody(req);
-        const downloaded = await fetchYouTubeAudio(youtubeUrl(source));
-        try {
-          const buffer = await readFile(downloaded.audioPath);
-          res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': buffer.length, 'Content-Disposition': `attachment; filename="${downloaded.filename}"`, 'Cache-Control': 'no-store' });
-          res.end(buffer);
-        } finally { await rm(downloaded.directory, { recursive: true, force: true }); }
-        return;
+        return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false } });
       }
       if (req.method === 'POST' && ['/api/register', '/api/login'].includes(url.pathname)) {
         const key = req.socket.remoteAddress;

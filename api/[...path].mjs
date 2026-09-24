@@ -1,4 +1,4 @@
-import { scryptSync, randomBytes, timingSafeEqual, createHmac } from 'node:crypto';
+import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql, initializeDatabase } from '../server/db.mjs';
 
 await initializeDatabase();
@@ -12,27 +12,6 @@ const check = (password, stored) => {
 };
 const cookieToken = req => /(?:^|;\s*)studio_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
-const workerUrl = process.env.YOUTUBE_WORKER_URL?.replace(/\/$/, '');
-const workerSecret = process.env.YOUTUBE_WORKER_SECRET;
-const youtubeImportEnabled = Boolean(workerUrl && workerSecret);
-const youtubeImportMissing = [
-  !workerUrl && 'YOUTUBE_WORKER_URL',
-  !workerSecret && 'YOUTUBE_WORKER_SECRET'
-].filter(Boolean);
-function youtubeUrl(value) {
-  let url;
-  try { url = new URL(String(value)); } catch { fail('Enter a valid YouTube video URL.'); }
-  const host = url.hostname.toLowerCase().replace(/^www\./, '');
-  if (url.protocol !== 'https:' || !['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) fail('Use a youtube.com or youtu.be HTTPS link.');
-  if (!url.pathname || (host !== 'youtu.be' && !url.searchParams.get('v') && !url.pathname.startsWith('/shorts/'))) fail('Use a link to one YouTube video.');
-  return url.href;
-}
-function importTicket(videoUrl) {
-  const payload = Buffer.from(JSON.stringify({ url: videoUrl, exp: Date.now() + 5 * 60_000, nonce: randomBytes(12).toString('hex') })).toString('base64url');
-  const signature = createHmac('sha256', workerSecret).update(payload).digest('base64url');
-  return `${payload}.${signature}`;
-}
-
 async function current(req) {
   const [user] = await sql`SELECT users.* FROM users JOIN sessions ON users.id = sessions.user_id WHERE sessions.token = ${cookieToken(req) || ''} AND sessions.expires > ${Date.now()}`;
   return user;
@@ -56,7 +35,7 @@ export default async function handler(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'${workerUrl ? ` ${workerUrl}` : ''}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`);
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   try {
     const url = new URL(req.url, 'https://localhost');
     if (!['GET', 'HEAD'].includes(req.method)) {
@@ -66,14 +45,7 @@ export default async function handler(req, res) {
     }
     if (req.method === 'GET' && url.pathname === '/api/status') {
       const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
-      return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false, urlImport: youtubeImportEnabled, youtubeImport: youtubeImportEnabled }, youtubeImportMissing });
-    }
-    if (req.method === 'POST' && ['/api/youtube-ticket', '/api/import/youtube-ticket'].includes(url.pathname)) {
-      const user = await current(req);
-      if (!user || user.status !== 'active') fail('Sign in to import audio.', 401);
-      if (!youtubeImportEnabled) fail('YouTube import is not configured for this deployment.', 503);
-      const { url: source } = await jsonBody(req);
-      return send(res, 200, { workerUrl: `${workerUrl}/youtube`, token: importTicket(youtubeUrl(source)) });
+      return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false } });
     }
     if (req.method === 'POST' && ['/api/register', '/api/login'].includes(url.pathname)) {
       const key = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
