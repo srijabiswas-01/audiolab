@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 test('account approval, authorization, session revocation and private server files', { skip: !process.env.TEST_DATABASE_URL }, async t => {
   const cwd = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-  const server = spawn(process.execPath, ['server.mjs'], { cwd, env: { ...process.env, PORT: '0', DATABASE_URL: process.env.TEST_DATABASE_URL }, windowsHide: true });
+  const server = spawn(process.execPath, ['server/server.mjs'], { cwd, env: { ...process.env, PORT: '0', DATABASE_URL: process.env.TEST_DATABASE_URL }, windowsHide: true });
   t.after(() => server.kill());
   const base = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Server did not start')), 10000);
@@ -14,7 +14,7 @@ test('account approval, authorization, session revocation and private server fil
     server.on('error', reject);
   });
   const request = (url, body, cookie = '', extra = {}) => fetch(base + url, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, ...extra }, body: body === undefined ? undefined : JSON.stringify(body) });
-  const duplicate = spawn(process.execPath, ['server.mjs'], { cwd, env: { ...process.env, PORT: new URL(base).port, DATABASE_URL: process.env.TEST_DATABASE_URL }, windowsHide: true });
+  const duplicate = spawn(process.execPath, ['server/server.mjs'], { cwd, env: { ...process.env, PORT: new URL(base).port, DATABASE_URL: process.env.TEST_DATABASE_URL }, windowsHide: true });
   t.after(() => duplicate.kill());
   let startupError = '';
   duplicate.stderr.on('data', chunk => { startupError += chunk; });
@@ -43,7 +43,7 @@ test('account approval, authorization, session revocation and private server fil
   assert.equal((await request('/api/admin/users', { id: artist.id, status: 'suspended' }, adminCookie)).status, 200);
   assert.equal((await (await request('/api/status', undefined, artistCookie)).json()).user, null);
   assert.equal((await request('/api/logout', {}, adminCookie, { Origin: 'https://example.invalid' })).status, 403);
-  for (const file of ['/server.mjs', '/data/studio.db', '/package.json']) assert.equal((await request(file)).status, 404);
+  for (const file of ['/server/server.mjs', '/data/studio.db', '/package.json']) assert.equal((await request(file)).status, 404);
   assert.equal((await request('/')).status, 200);
   assert.equal((await request('/api/logout', {}, adminCookie)).status, 200);
   assert.equal((await request('/api/admin/users', undefined, adminCookie)).status, 401);

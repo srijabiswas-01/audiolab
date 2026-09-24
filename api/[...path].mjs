@@ -1,5 +1,5 @@
 import { scryptSync, randomBytes, timingSafeEqual, createHmac } from 'node:crypto';
-import { sql, initializeDatabase } from '../db.mjs';
+import { sql, initializeDatabase } from '../server/db.mjs';
 
 await initializeDatabase();
 

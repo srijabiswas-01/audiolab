@@ -122,8 +122,10 @@ Screenshots and traces are written under `test-results/` and excluded from versi
 
 | File | Responsibility |
 | --- | --- |
-| `server.mjs` | Static server, Neon accounts, sessions, approval APIs |
-| `app.js` | Application views, routing, IndexedDB, interaction |
-| `audio.js` | Demo synthesis, analysis, Web Audio playback/mixing, WAV encoding |
-| `styles.css` | Palette, desktop/mobile layout, interaction states |
+| `public/` | Browser application, styles, audio engine, and static assets |
+| `server/server.mjs` | Local static server, accounts, sessions, and approval APIs |
+| `server/db.mjs` | Shared Neon/Postgres schema and database connection |
+| `api/` | Vercel serverless API routes |
+| `scripts/` | One-off maintenance and database migration utilities |
+| `worker/` | Containerized YouTube audio import worker |
 | `tests/` | Audio, API, and browser tests |

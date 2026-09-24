@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyze, encodeWav, formatTime, waveformPeaks } from '../audio.js';
+import { analyze, encodeWav, formatTime, waveformPeaks } from '../public/audio.js';
 
 function buffer(channels, rate = 44100) {
   return { numberOfChannels: channels.length, length: channels[0].length, sampleRate: rate, duration: channels[0].length / rate, getChannelData: c => Float32Array.from(channels[c]) };

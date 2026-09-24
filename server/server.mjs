@@ -9,6 +9,7 @@ import path from 'node:path';
 import { sql, initializeDatabase } from './db.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const publicRoot = path.resolve(root, '../public');
 await initializeDatabase();
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || '127.0.0.1';
@@ -156,7 +157,7 @@ const server = http.createServer(async (req, res) => {
     if (!['GET', 'HEAD'].includes(req.method)) fail('Method not allowed.', 405);
     const file = url.pathname === '/' ? '/index.html' : url.pathname;
     if (!assets.has(file)) fail('Not found.', 404);
-    const buffer = await readFile(path.join(root, file));
+    const buffer = await readFile(path.join(publicRoot, file));
     res.writeHead(200, { 'Content-Type': mime[path.extname(file)], 'Cache-Control': 'no-cache' });
     res.end(req.method === 'HEAD' ? undefined : buffer);
   } catch (error) { send(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }

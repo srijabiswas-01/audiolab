@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { sql, initializeDatabase } from './db.mjs';
+import { sql, initializeDatabase } from '../server/db.mjs';
 
 const source = path.resolve(process.env.SQLITE_DATABASE_PATH || 'data/studio.db');
 if (!existsSync(source)) throw new Error(`SQLite database not found at ${source}. Nothing was migrated.`);

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { encodeWav } from '../audio.js';
+import { encodeWav } from '../public/audio.js';
 import { readFile } from 'node:fs/promises';
 
 test('desktop and mobile studio, real audio upload, account approval, saved edits, WAV export', async ({ page }) => {
