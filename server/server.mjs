@@ -78,13 +78,13 @@ const server = http.createServer(async (req, res) => {
         const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
         return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false, urlImport: youtubeImportEnabled, youtubeImport: youtubeImportEnabled } });
       }
-      if (req.method === 'POST' && url.pathname === '/api/import/youtube-ticket') {
+      if (req.method === 'POST' && ['/api/youtube-ticket', '/api/import/youtube-ticket'].includes(url.pathname)) {
         const user = await current(req);
         if (!user || user.status !== 'active') fail('Sign in to import audio.', 401);
         if (!youtubeImportEnabled) fail('YouTube import is not enabled on this server.', 503);
         const { url: source } = await jsonBody(req);
         youtubeUrl(source);
-        return send(res, 200, { workerUrl: '/api/import/youtube', token: '' });
+        return send(res, 200, { workerUrl: '/api/import/youtube', method: 'POST', body: { url: source } });
       }
       if (req.method === 'POST' && url.pathname === '/api/import/youtube') {
         const user = await current(req);

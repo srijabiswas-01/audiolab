@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { copyFile, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -9,11 +9,38 @@ const port = Number(process.env.PORT || 8080);
 const secret = process.env.YOUTUBE_WORKER_SECRET;
 const allowedOrigin = process.env.ALLOWED_ORIGIN;
 const cookiesFile = process.env.YOUTUBE_COOKIES_FILE;
+const maxConcurrentImports = Math.max(1, Number(process.env.MAX_CONCURRENT_IMPORTS || 2));
+const importsPerMinute = Math.max(1, Number(process.env.IMPORTS_PER_MINUTE || 10));
 const usedTickets = new Map();
+const requestCounts = new Map();
+let activeImports = 0;
 if (!secret || !allowedOrigin) throw new Error('YOUTUBE_WORKER_SECRET and ALLOWED_ORIGIN are required.');
 
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function send(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); }
+function clientAddress(req) { return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim(); }
+function enforceRateLimit(req) {
+  const key = clientAddress(req); const now = Date.now();
+  let entry = requestCounts.get(key);
+  if (!entry || entry.until <= now) { entry = { count: 0, until: now + 60_000 }; requestCounts.set(key, entry); }
+  if (++entry.count > importsPerMinute) fail('Too many import requests. Try again in a minute.', 429);
+}
+async function cookieStatus() {
+  if (!cookiesFile) return { configured: false, available: false, readable: false, formatValid: false };
+  try {
+    await stat(cookiesFile);
+    const contents = await readFile(cookiesFile, 'utf8');
+    const firstLine = contents.split(/\r?\n/, 1)[0].trim();
+    return {
+      configured: true,
+      available: true,
+      readable: true,
+      formatValid: ['# Netscape HTTP Cookie File', '# HTTP Cookie File'].includes(firstLine)
+    };
+  } catch {
+    return { configured: true, available: false, readable: false, formatValid: false };
+  }
+}
 function extractorMessage(stderr) {
   const detail = String(stderr).split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('[debug]')).slice(-2).join(' ');
   return detail ? `Could not import this YouTube video: ${detail.slice(0, 500)}` : 'Could not import this YouTube video.';
@@ -38,11 +65,14 @@ function run(args) {
 async function audioFromYouTube(url) {
   const directory = await mkdtemp(path.join(tmpdir(), 'audiolab-'));
   try {
-    const clients = cookiesFile ? ['web_creator', 'tv_embedded', 'android', 'web'] : ['web_safari', 'tv_embedded', 'android', 'web'];
+    const cookies = await cookieStatus();
+    if (cookies.available && !cookies.formatValid) fail('The YouTube cookie secret is not a valid Netscape cookie file.', 503);
+    const usableCookiesFile = cookies.readable && cookies.formatValid ? cookiesFile : null;
+    const clients = usableCookiesFile ? ['web_creator', 'tv_embedded', 'android', 'web'] : ['web_safari', 'tv_embedded', 'android', 'web'];
     const args = ['--no-playlist', '--no-progress', '--impersonate', 'chrome', '--js-runtimes', 'node', '--remote-components', 'ejs:github', '--format', 'bestaudio/best', '--extract-audio', '--audio-format', 'wav', '--max-filesize', '100M', '--match-filter', 'duration <= 600', '--output', path.join(directory, '%(id)s.%(ext)s')];
-    if (cookiesFile) {
+    if (usableCookiesFile) {
       const writableCookies = path.join(directory, 'youtube-cookies.txt');
-      await copyFile(cookiesFile, writableCookies);
+      await copyFile(usableCookiesFile, writableCookies);
       args.push('--cookies', writableCookies);
     }
     let lastError;
@@ -70,16 +100,26 @@ http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(origin === allowedOrigin ? 204 : 403, { 'Access-Control-Allow-Headers': 'Authorization', 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Max-Age': '300' }); return res.end(); }
   try {
     if (req.method === 'GET' && new URL(req.url, 'http://localhost').pathname === '/health') {
-      const cookiesAvailable = Boolean(cookiesFile && await stat(cookiesFile).then(() => true).catch(() => false));
-      return send(res, 200, { ok: true, cookiesConfigured: Boolean(cookiesFile), cookiesAvailable });
+      const cookies = await cookieStatus();
+      return send(res, 200, { ok: true, cookiesConfigured: cookies.configured, cookiesAvailable: cookies.available, cookiesReadable: cookies.readable, cookiesFormatValid: cookies.formatValid });
     }
     if (req.method !== 'GET' || new URL(req.url, 'http://localhost').pathname !== '/youtube') fail('Not found.', 404);
     if (origin !== allowedOrigin) fail('Origin rejected.', 403);
     const rawTicket = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1]; const ticket = validToken(rawTicket); if (!ticket) fail('Import ticket is invalid or expired.', 401);
+    enforceRateLimit(req);
+    if (activeImports >= maxConcurrentImports) fail('The import worker is busy. Try again shortly.', 503);
     for (const [nonce, expiry] of usedTickets) if (expiry <= Date.now()) usedTickets.delete(nonce);
     if (usedTickets.has(ticket.nonce)) fail('This import ticket was already used.', 409); usedTickets.set(ticket.nonce, ticket.exp);
-    const output = await audioFromYouTube(ticket.url);
-    try { const audio = await readFile(output.file); res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': audio.length, 'Content-Disposition': `attachment; filename="${output.filename}"`, 'Cache-Control': 'no-store' }); res.end(audio); }
-    finally { await rm(output.directory, { recursive: true, force: true }); }
-  } catch (error) { send(res, error.status || 500, { error: error.status ? error.message : 'Import failed.' }); }
+    activeImports++;
+    try {
+      const output = await audioFromYouTube(ticket.url);
+      try { const audio = await readFile(output.file); res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': audio.length, 'Content-Disposition': `attachment; filename="${output.filename}"`, 'Cache-Control': 'no-store' }); res.end(audio); }
+      finally { await rm(output.directory, { recursive: true, force: true }); }
+    } finally { activeImports--; }
+  } catch (error) {
+    if (error.status) return send(res, error.status, { error: error.message });
+    const reference = randomUUID();
+    console.error(`[${reference}] Unexpected import failure`, error);
+    send(res, 500, { error: `Import failed. Check the worker logs for reference ${reference}.` });
+  }
 }).listen(port, '0.0.0.0', () => console.log(`AudioLab worker listening on ${port}`));

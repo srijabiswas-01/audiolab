@@ -251,7 +251,11 @@ async function importYouTube(url) {
     const ticketResponse=await fetch('/api/youtube-ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
     if(!ticketResponse.ok){const body=await ticketResponse.text();let result={};try{result=JSON.parse(body);}catch{}throw new Error(result.error||`Could not start the YouTube import (HTTP ${ticketResponse.status}).`);}
     const ticket=await ticketResponse.json();
-    const response=await fetch(ticket.workerUrl,{headers:{Authorization:`Bearer ${ticket.token}`}});
+    const headers={};
+    if(ticket.token)headers.Authorization=`Bearer ${ticket.token}`;
+    const options={method:ticket.method||'GET',headers};
+    if(ticket.body){headers['Content-Type']='application/json';options.body=JSON.stringify(ticket.body);}
+    const response=await fetch(ticket.workerUrl,options);
     if(!response.ok){const body=await response.text();let result={};try{result=JSON.parse(body);}catch{}throw new Error(result.error||`Could not import that YouTube video (HTTP ${response.status}).`);}
     const blob=await response.blob();
     const filename=(response.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/i)?.[1]||'youtube-audio.wav').replace(/[<>:"/\\|?*\u0000-\u001F]/g,'_');

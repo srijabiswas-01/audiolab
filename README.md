@@ -68,7 +68,7 @@ These features have informative UI states, but **are not implemented processing 
 
 The demo does not stand in for processing uploaded audio. For real AI and universal media handling, add FFmpeg plus tested separation/ASR providers in background workers, with private object storage and a durable job queue. No external service keys are required or configured in this build.
 
-## YouTube import on Vercel
+## YouTube import deployment
 
 The site flow is: YouTube link → audio-only stream extraction → WAV conversion → normal AudioLab project processing. It is intended only for media the user owns or is authorized to use.
 
@@ -92,6 +92,18 @@ The Vercel API authenticates the signed-in user and issues a five-minute, signed
 
 If YouTube returns HTTP 403 from the worker host, configure an authorized Netscape-format browser cookie export as a Render secret file and set `YOUTUBE_COOKIES_FILE` to its mounted path. Do not commit or paste cookies into source control. Cookies should only be used for media the account owner is authorized to access.
 
+### Production checklist
+
+1. Create a Render Blueprint from this repository. Set `YOUTUBE_WORKER_SECRET` to a long random value and set `ALLOWED_ORIGIN` to the exact Vercel production origin, with no trailing slash.
+2. Wait for the worker deployment, then open `https://your-worker.onrender.com/health` and confirm it returns `{"ok":true,...}`.
+3. In the Vercel Production environment, set `DATABASE_URL`, `YOUTUBE_WORKER_URL`, and `YOUTUBE_WORKER_SECRET`. The secret must exactly match the Render value. Redeploy Vercel after changing variables.
+4. Open `/api/status` on the deployed site and confirm `capabilities.youtubeImport` is `true`.
+5. Temporarily set `ALLOW_FIRST_ADMIN_SIGNUP=true` only while creating the first administrator. Remove it or set it to `false` immediately afterward and redeploy.
+
+Try authorized public videos without cookies first. If authentication is required, export a fresh Netscape-format cookie file from a dedicated YouTube account. In the Render worker service, open **Environment -> Secret Files**, create `youtube-cookies.txt`, and paste the file contents there. Render mounts it at `/etc/secrets/youtube-cookies.txt`; the Blueprint already configures that path. After deployment, `/health` should report both `cookiesConfigured` and `cookiesAvailable` as `true`.
+
+Do not use a primary personal account for worker cookies. YouTube can require PO tokens, reject data-center IP addresses, or bind a session to the IP that created it. A cookie exported on your computer is therefore not guaranteed to work from Render and can expire or trigger account security checks. If repeated 403 or bot-verification errors continue, refresh the secret file or use an authorized media-ingestion provider; do not expose the worker without signed-ticket authentication.
+
 For local development only, install `yt-dlp` and FFmpeg on the machine running AudioLab, then enable the local worker:
 
 ```powershell
@@ -99,7 +111,7 @@ $env:YTDLP_ENABLED = 'true'
 npm.cmd start
 ```
 
-If `yt-dlp` is not on `PATH`, set `YTDLP_PATH` to its executable path. Do not expose the local endpoint publicly. A public worker should additionally have rate limits, quotas, and abuse monitoring.
+If `yt-dlp` is not on `PATH`, set `YTDLP_PATH` to its executable path. Do not expose the local endpoint publicly. The included public worker has basic in-memory request and concurrency limits; production operators should still add platform monitoring and account-level quotas.
 
 This is a **local application foundation**, not a production internet deployment. Before public hosting, implement email verification and recovery, admin MFA, HTTPS, durable server-side project storage and access control, backups/retention, upload and worker sandboxing, and operational monitoring. The default listener is localhost. `HOST`, `PORT`, `DATA_DIR`, and `COOKIE_SECURE=true` are supported environment settings; changing the listener alone does not make the system production-ready.
 

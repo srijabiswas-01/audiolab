@@ -12,3 +12,9 @@ services:
         sync: false
       - key: ALLOWED_ORIGIN
         sync: false
+      - key: YOUTUBE_COOKIES_FILE
+        value: /etc/secrets/youtube-cookies.txt
+      - key: MAX_CONCURRENT_IMPORTS
+        value: "2"
+      - key: IMPORTS_PER_MINUTE
+        value: "10"
