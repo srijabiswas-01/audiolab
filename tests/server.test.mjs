@@ -38,6 +38,13 @@ test('account approval, authorization, session revocation and private server fil
   assert.equal((await request('/api/projects/delete', { id: project.id }, adminCookie)).status, 200);
   const deletedList = await (await request('/api/projects', undefined, adminCookie)).json();
   assert.equal(deletedList.projects.length, 0); assert.equal(deletedList.deleted[0].id, project.id);
+  const savedExport = { id: '22222222-2222-4222-8222-222222222222', projectId: project.id, name: 'mix.wav', size: 3, createdAt: Date.now(), chunks: 1 };
+  assert.equal((await request('/api/exports', savedExport, adminCookie)).status, 200);
+  assert.equal((await request('/api/exports/chunk', { id: savedExport.id, index: 0, data: 'AQID' }, adminCookie)).status, 200);
+  const exportList = await (await request('/api/exports', undefined, adminCookie)).json();
+  assert.equal(exportList.exports.length, 1); assert.equal(exportList.exports[0].name, 'mix.wav');
+  assert.equal((await (await request(`/api/exports/${savedExport.id}/chunks/0`, undefined, adminCookie)).json()).data, 'AQID');
+  assert.equal((await request('/api/exports/delete', { id: savedExport.id }, adminCookie)).status, 200);
   const registered = await request('/api/register', { name: 'Artist', email: 'artist@example.test', password: 'secure-example-456' });
   assert.equal(registered.status, 201); assert.equal((await registered.json()).pending, true);
   assert.equal((await request('/api/login', { email: 'artist@example.test', password: 'secure-example-456' })).status, 403);

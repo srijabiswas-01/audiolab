@@ -44,7 +44,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'GET' && url.pathname === '/api/status') {
         const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
-        return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, cloudProjects: true, wavExport: true, separation: false, transcription: false } });
+        return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, cloudProjects: true, cloudExports: true, wavExport: true, separation: false, transcription: false } });
       }
       if (req.method === 'POST' && ['/api/register', '/api/login'].includes(url.pathname)) {
         const key = req.socket.remoteAddress;

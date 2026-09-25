@@ -87,32 +87,24 @@ async function uploadProject(record, includeAudio = true) {
     await api('/api/projects/chunk', { id:record.id, index, data:bytesToBase64(bytes.subarray(offset, offset+CLOUD_CHUNK_SIZE)) });
   }
 }
-async function downloadProject(project) {
-  const bytes = new Uint8Array(project.size);
-  for (let index = 0, offset = 0; index < project.chunks; index++, offset += CLOUD_CHUNK_SIZE) {
-    const chunk = base64ToBytes((await api(`/api/projects/${encodeURIComponent(project.id)}/chunks/${index}`)).data);
-    bytes.set(chunk, offset);
+async function downloadCloudBytes(kind, record) {
+  const bytes=new Uint8Array(record.size);
+  for(let index=0,offset=0;index<record.chunks;index++,offset+=CLOUD_CHUNK_SIZE) {
+    const chunk=base64ToBytes((await api(`/api/${kind}/${encodeURIComponent(record.id)}/chunks/${index}`)).data);bytes.set(chunk,offset);
   }
-  await database('projects','put',{...project,owner:owner(),bytes:bytes.buffer});
+  return bytes;
 }
-async function syncProjects() {
-  if (!state.user) return;
-  const cloud = await api('/api/projects');
-  const local = (await database('projects','getAll')).filter(project=>project.owner===owner());
-  const deleted = new Map((cloud.deleted||[]).map(item=>[item.id,item.deletedAt]));
-  for (const project of local) if ((deleted.get(project.id)||0) >= (project.updatedAt||project.createdAt)) await database('projects','delete',project.id);
-  const remaining = (await database('projects','getAll')).filter(project=>project.owner===owner());
-  const localById = new Map(remaining.map(project=>[project.id,project]));
-  const cloudById = new Map(cloud.projects.map(project=>[project.id,project]));
-  for (const project of remaining) {
-    const remote = cloudById.get(project.id);
-    if (!remote && (!deleted.has(project.id) || (project.updatedAt||project.createdAt) > deleted.get(project.id))) await uploadProject(project, true);
-    else if (remote && (project.updatedAt||project.createdAt) > remote.updatedAt) await uploadProject(project, false);
-  }
-  for (const project of cloud.projects) {
-    const cached = localById.get(project.id);
-    if (!cached || project.updatedAt > (cached.updatedAt||cached.createdAt)) await downloadProject(project);
-  }
+async function uploadExport(record) {
+  const bytes=new Uint8Array(await record.blob.arrayBuffer()),chunks=Math.ceil(bytes.length/CLOUD_CHUNK_SIZE);
+  await api('/api/exports',{id:record.id,projectId:record.projectId,name:record.name,size:record.size,createdAt:record.createdAt,chunks});
+  for(let index=0,offset=0;offset<bytes.length;index++,offset+=CLOUD_CHUNK_SIZE)await api('/api/exports/chunk',{id:record.id,index,data:bytesToBase64(bytes.subarray(offset,offset+CLOUD_CHUNK_SIZE))});
+}
+async function migrateBrowserData() {
+  if(!state.user)return;
+  const cloudProjects=await api('/api/projects'),cloudExports=await api('/api/exports');
+  const projectIds=new Set(cloudProjects.projects.map(item=>item.id)),exportIds=new Set(cloudExports.exports.map(item=>item.id));
+  for(const project of (await database('projects','getAll')).filter(item=>item.owner===owner())){if(!projectIds.has(project.id))await uploadProject(project,true);await database('projects','delete',project.id);}
+  for(const item of (await database('exports','getAll')).filter(item=>item.owner===owner())){if(!exportIds.has(item.id))await uploadExport(item);await database('exports','delete',item.id);}
 }
 function toast(message, error = false) {
   $('#toast-region').replaceChildren();
@@ -161,7 +153,7 @@ function render() {
         ${[['convert','Audio converter','convert'],['extract','Audio extractor','music'],['analysis','Audio analyzer','activity'],['stems','Stem separator','split'],['transcript','Transcription','mic'],['remix','Remix studio','sliders']].map(([tool,label,name]) => `<button class="nav-item ${state.activeTool === tool ? 'tool-active' : ''}" data-tool="${tool}">${icon(name)}<span>${label}</span>${tool === 'stems' || tool === 'transcript' ? '<span class="ai-tag">AI</span>' : ''}</button>`).join('')}
       </nav>
       <div class="sidebar-bottom">
-        <div class="storage-card"><div>${icon('folder')}<strong>Your creative space</strong><span class="status-dot"></span></div><p>${bytesText(totalBytes)} <span>of 2 GB local allowance</span></p><div class="storage-bar"><span style="width:${Math.min(100, Math.max(3, totalBytes / (2 * 1024 ** 3) * 100))}%"></span></div><small>${state.user?'Synced to your account':'Saved in this browser'} ${icon('shield')}</small></div>
+        <div class="storage-card"><div>${icon('folder')}<strong>Your creative space</strong><span class="status-dot"></span></div><p>${bytesText(totalBytes)} <span>of 2 GB account allowance</span></p><div class="storage-bar"><span style="width:${Math.min(100, Math.max(3, totalBytes / (2 * 1024 ** 3) * 100))}%"></span></div><small>${state.user?'Stored in Neon':'Sign in to save'} ${icon('shield')}</small></div>
         ${navButton('settings', 'Settings', 'settings')}
         ${state.user?.role === 'admin' ? navButton('admin', 'User approvals', 'shield') : ''}
         <button class="nav-item" data-action="help">${icon('help')}<span>Help & getting started</span>${icon('arrow', 'tiny-icon')}</button>
@@ -190,10 +182,10 @@ function workspace() {
 function projectPanel() {
   if (!state.project) return '<div class="loading-state"><span class="spinner"></span>Setting the mood…</div>';
   const p = state.project;
-  return `<div class="project-title-row"><div class="project-art">${icon('music')}</div><div class="project-title"><div class="overline">${p.demo ? 'MEET YOUR DEMO PROJECT' : 'NOW IN YOUR WORKSPACE'}</div><h2>${escapeHtml(p.name)} <span class="pill">${p.demo ? 'Demo' : 'Local'}</span></h2><p>${p.demo ? 'An original AudioLab session' : escapeHtml(p.filename)} <span>·</span> ${formatTime(state.mix.duration)} <span>·</span> ${p.demo ? '4 playable layers' : 'Original audio'}</p></div><button class="icon-button" data-action="project-info" aria-label="Project information">${icon('info')}</button></div>
-    <div class="project-tabs" role="tablist" aria-label="Project views">${[['overview','Overview'],['stems','Stems'],['transcript','Transcript'],['analysis','Analysis']].map(([id,label])=>`<button role="tab" aria-selected="${state.tab===id}" class="${state.tab===id?'selected':''}" data-tab="${id}">${label}${id==='stems'?`<span>${state.tracks.length}</span>`:''}</button>`).join('')}<span class="saved-state">${icon('check')} ${p.demo ? 'Ready to explore' : 'Saved locally'}</span></div>
+  return `<div class="project-title-row"><div class="project-art">${icon('music')}</div><div class="project-title"><div class="overline">${p.demo ? 'MEET YOUR DEMO PROJECT' : 'NOW IN YOUR WORKSPACE'}</div><h2>${escapeHtml(p.name)} <span class="pill">${p.demo ? 'Demo' : 'Neon'}</span></h2><p>${p.demo ? 'An original AudioLab session' : escapeHtml(p.filename)} <span>·</span> ${formatTime(state.mix.duration)} <span>·</span> ${p.demo ? '4 playable layers' : 'Original audio'}</p></div><button class="icon-button" data-action="project-info" aria-label="Project information">${icon('info')}</button></div>
+    <div class="project-tabs" role="tablist" aria-label="Project views">${[['overview','Overview'],['stems','Stems'],['transcript','Transcript'],['analysis','Analysis']].map(([id,label])=>`<button role="tab" aria-selected="${state.tab===id}" class="${state.tab===id?'selected':''}" data-tab="${id}">${label}${id==='stems'?`<span>${state.tracks.length}</span>`:''}</button>`).join('')}<span class="saved-state">${icon('check')} ${p.demo ? 'Ready to explore' : 'Saved to Neon'}</span></div>
     <div class="project-view" role="tabpanel">${state.tab==='analysis'?analysisView():state.tab==='transcript'?transcriptView():state.tab==='stems'?stemsView():overviewView()}</div>
-    <div class="project-bottom"><span>${icon('shield')} ${p.demo ? 'Original demo audio. Yours to play with.' : 'Your audio stays on this device.'}</span><button class="button primary small" data-action="export">${icon('download')} Export audio</button></div>`;
+    <div class="project-bottom"><span>${icon('shield')} ${p.demo ? 'Original demo audio. Yours to play with.' : 'Stored privately in your Neon account.'}</span><button class="button primary small" data-action="export">${icon('download')} Export audio</button></div>`;
 }
 function waveform(buffer, className='main-wave', id='main') {
   return `<div class="waveform-scroll"><div class="waveform-area ${className}" style="min-width:${state.zoom*100}%"><canvas data-wave="${id}" role="img" aria-label="Audio waveform"></canvas>${id === 'main' ? '<div class="playhead" id="playhead"><span></span></div><input class="waveform-seek" type="range" min="0" max="1000" value="0" aria-label="Seek through audio">' : ''}</div></div>`;
@@ -214,7 +206,7 @@ function analysisView() {
   return `<div class="view-intro"><div><strong>A closer look at your sound.</strong><p>Measured from the original decoded audio.</p></div><span class="pill green">${icon('check')} Analyzed</span></div><div class="analysis-grid">${[['Duration',formatTime(a.duration),'minutes : seconds'],['Sample rate',`${(a.sampleRate/1000).toFixed(1)} kHz`,'decoded sample rate'],['Channels',a.channels===2?'Stereo':a.channels===1?'Mono':a.channels,`${a.channels} audio channels`],['Sample peak',`${db(a.peakDb)} dBFS`,'highest sample level'],['RMS level',`${db(a.rmsDb)} dBFS`,'average signal energy'],['Near-full-scale samples',a.clipping.toLocaleString(),'absolute amplitude ≥ 0.999']].map(([label,value,detail])=>`<div class="analysis-stat"><span>${label}</span><strong>${value}</strong><small>${detail}</small></div>`).join('')}</div><div class="insight">${icon(a.clipping?'info':'check')}<div><strong>${a.clipping?'Some samples are near full scale.':'There’s room for your creativity.'}</strong><p>${a.clipping?'Check the original recording for audible distortion before raising the gain.':'No near-full-scale samples detected in the original. Check the final mix when raising track levels.'}</p></div></div><p class="fine-print">RMS is not perceived loudness (LUFS). Tempo, key, and AI quality scores are not estimated in this build.</p>`;
 }
 function transcriptView() {
-  return `<div class="view-intro"><div><strong>Give your sound a voice.</strong><p>${state.project.demo?'This instrumental demo contains no spoken words.':'Add a transcript manually or import text you already have.'}</p></div><button class="button secondary small" data-action="ai-transcription">${icon('sparkles')} Auto-transcribe</button></div><label class="field-label" for="transcript-text">Project notes & transcript <span>Manually edited</span></label><textarea id="transcript-text" class="transcript-editor" placeholder="Your words belong here. Type or paste a transcript…">${escapeHtml(state.project.transcript||'')}</textarea><div class="transcript-actions"><span class="subtle-text">${icon('shield')} Saved only in this browser</span><button class="text-button" data-action="download-transcript">${icon('download')} Download TXT</button><button class="button primary small" data-action="save-transcript">Save text</button></div>`;
+  return `<div class="view-intro"><div><strong>Give your sound a voice.</strong><p>${state.project.demo?'This instrumental demo contains no spoken words.':'Add a transcript manually or import text you already have.'}</p></div><button class="button secondary small" data-action="ai-transcription">${icon('sparkles')} Auto-transcribe</button></div><label class="field-label" for="transcript-text">Project notes & transcript <span>Manually edited</span></label><textarea id="transcript-text" class="transcript-editor" placeholder="Your words belong here. Type or paste a transcript…">${escapeHtml(state.project.transcript||'')}</textarea><div class="transcript-actions"><span class="subtle-text">${icon('shield')} Saved to Neon</span><button class="text-button" data-action="download-transcript">${icon('download')} Download TXT</button><button class="button primary small" data-action="save-transcript">Save text</button></div>`;
 }
 function projectRows(limit=100) {
   const rows = [...state.projects, { id:'demo',name:'Midnight in bloom',duration:48,demo:true }].slice(0,limit);
@@ -228,7 +220,7 @@ function exportsPage() {
   return `${pageHeading('READY FOR THE WORLD','Your finished sounds','Every export, ready for its next adventure.')}<section class="panel exports-panel">${state.exports.length?`<div class="export-table"><div class="export-table-head"><span>File</span><span>Format</span><span>Size</span><span>Created</span><span>Actions</span></div>${state.exports.map(e=>`<div class="export-row"><span class="export-filename">${icon('music')}<strong>${escapeHtml(e.name)}</strong></span><span class="pill">WAV</span><span>${bytesText(e.size)}</span><span>${dateText(e.createdAt)}</span><div><button class="icon-button" data-action="download-export" data-id="${e.id}" aria-label="Download ${escapeHtml(e.name)}">${icon('download')}</button><button class="icon-button" data-action="delete-export" data-id="${e.id}" aria-label="Delete ${escapeHtml(e.name)}">${icon('trash')}</button></div></div>`).join('')}</div>`:`<div class="empty-state"><span class="empty-icon">${icon('download')}</span><h2>Your next favorite mix goes here.</h2><p>Open a project, find your balance, and export your first WAV file.</p><button class="button primary" data-page="workspace">Back to the studio ${icon('arrow')}</button></div>`}</section>`;
 }
 function settingsPage() {
-  return `${pageHeading('MAKE YOURSELF AT HOME','The little details','Your account, your workspace, your way.')}<div class="settings-grid"><section class="panel settings-panel"><h2>${icon('shield')} Account & access</h2>${state.user?`<div class="account-details"><span class="profile-button">${escapeHtml(state.user.name[0])}</span><div><strong>${escapeHtml(state.user.name)}</strong><p>${escapeHtml(state.user.email)}</p></div><span class="pill">${state.user.role}</span></div><p>Your approved account keeps projects synchronized between browsers and devices.</p><button class="button secondary" data-action="logout">${icon('logout')} Sign out</button>`:`<p>Explore the demo freely. Sign in to synchronize your projects.</p><button class="button primary" data-action="account">${state.setupRequired?'Set up your workspace':'Sign in / Register'}</button>`}</section><section class="panel settings-panel"><h2>${icon('folder')} Cloud sync</h2><p>Your audio is decoded and mixed on your device, then securely synchronized to your account.</p><div class="settings-list"><div><span>Project storage</span><strong>Browser + cloud</strong></div><div><span>Output format</span><strong>16-bit stereo WAV</strong></div><div><span>Upload limit</span><strong>100 MB / 10 min</strong></div><div><span>Local allowance</span><strong>2 GB per account</strong></div></div><p class="fine-print">Exports remain local. Download important finished mixes for safekeeping.</p></section><section class="panel settings-panel"><h2>${icon('sparkles')} Processing services</h2><p>These advanced tools need a server-side processing integration.</p><div class="settings-list"><div><span>AI stem separation</span><span class="pill">Not connected</span></div><div><span>Automatic transcription</span><span class="pill">Not connected</span></div><div><span>Remote URL import</span><span class="pill">Not connected</span></div><div><span>MP3 / FLAC encoding</span><span class="pill">Not connected</span></div></div></section><section class="panel settings-panel palette-panel"><h2>${icon('sliders')} A softer kind of studio</h2><p>Your palette, woven into every part of AudioLab.</p><div class="palette-swatches">${['#F8B2B2','#AF719D','#8B639B','#403D88'].map(c=>`<div><span style="background:${c}"></span><small>${c}</small></div>`).join('')}</div></section></div>`;
+  return `${pageHeading('MAKE YOURSELF AT HOME','The little details','Your account, your workspace, your way.')}<div class="settings-grid"><section class="panel settings-panel"><h2>${icon('shield')} Account & access</h2>${state.user?`<div class="account-details"><span class="profile-button">${escapeHtml(state.user.name[0])}</span><div><strong>${escapeHtml(state.user.name)}</strong><p>${escapeHtml(state.user.email)}</p></div><span class="pill">${state.user.role}</span></div><p>Your approved account keeps projects and exports available across browsers and devices.</p><button class="button secondary" data-action="logout">${icon('logout')} Sign out</button>`:`<p>Explore the demo freely. Sign in to access your Neon library.</p><button class="button primary" data-action="account">${state.setupRequired?'Set up your workspace':'Sign in / Register'}</button>`}</section><section class="panel settings-panel"><h2>${icon('folder')} Neon storage</h2><p>Your audio is decoded and mixed on your device, while projects, source audio, settings, transcripts, and exports are stored in Neon.</p><div class="settings-list"><div><span>Primary database</span><strong>Neon Postgres</strong></div><div><span>Output format</span><strong>16-bit stereo WAV</strong></div><div><span>Upload limit</span><strong>100 MB / 10 min</strong></div><div><span>Account allowance</span><strong>2 GB</strong></div></div><p class="fine-print">Download important finished mixes separately for safekeeping.</p></section><section class="panel settings-panel"><h2>${icon('sparkles')} Processing services</h2><p>These advanced tools need a server-side processing integration.</p><div class="settings-list"><div><span>AI stem separation</span><span class="pill">Not connected</span></div><div><span>Automatic transcription</span><span class="pill">Not connected</span></div><div><span>Remote URL import</span><span class="pill">Not connected</span></div><div><span>MP3 / FLAC encoding</span><span class="pill">Not connected</span></div></div></section><section class="panel settings-panel palette-panel"><h2>${icon('sliders')} A softer kind of studio</h2><p>Your palette, woven into every part of AudioLab.</p><div class="palette-swatches">${['#F8B2B2','#AF719D','#8B639B','#403D88'].map(c=>`<div><span style="background:${c}"></span><small>${c}</small></div>`).join('')}</div></section></div>`;
 }
 function adminPage() { return `${pageHeading('A LITTLE BEHIND THE SCENES','People in your studio','Approve new accounts and manage workspace access.')}<section class="panel admin-panel" id="admin-users"><div class="loading-state">Loading accounts…</div></section>`; }
 async function loadAdmin() {
@@ -237,8 +229,8 @@ async function loadAdmin() {
   } catch(e) { if($('#admin-users')) $('#admin-users').innerHTML=`<div class="empty-state">${escapeHtml(e.message)}</div>`; }
 }
 async function refreshLibrary() {
-  state.projects = (await database('projects','getAll')).filter(p=>p.owner===owner()).map(({bytes,...p})=>p).sort((a,b)=>b.createdAt-a.createdAt);
-  state.exports = (await database('exports','getAll')).filter(e=>e.owner===owner()).map(({blob,...e})=>e).sort((a,b)=>b.createdAt-a.createdAt);
+  if(!state.user){state.projects=[];state.exports=[];return;}
+  [state.projects,state.exports]=await Promise.all([api('/api/projects').then(result=>result.projects),api('/api/exports').then(result=>result.exports)]);
 }
 function setProject(project, mix, tracks) {
   engine.pause(); engine.offset=0; state.project=project; state.mix=mix; state.tracks=tracks; state.analysis=analyze(mix); state.tab='overview'; state.zoom=1; state.activeTool=null;
@@ -250,13 +242,13 @@ async function loadDemo() {
 }
 async function openProject(id) {
   if (id==='demo') await loadDemo();
-  else { const record=await database('projects','get',id); if(!record||record.owner!==owner()) throw new Error('Project not found in this account.'); const buffer=await engine.decode(record.bytes.slice(0)); const track={id:'original',name:'Original audio',buffer,gain:1,pan:0,muted:false,solo:false,color:'#AF719D',...record.settings?.[0]}; setProject(record,buffer,[track]); }
+  else { const record=state.projects.find(project=>project.id===id);if(!record)throw new Error('Project not found in this account.');const bytes=await downloadCloudBytes('projects',record);const buffer=await engine.decode(bytes.buffer);const track={id:'original',name:'Original audio',buffer,gain:1,pan:0,muted:false,solo:false,color:'#AF719D',...record.settings?.[0]};setProject(record,buffer,[track]); }
   state.page='workspace'; render();
 }
 async function saveProject() {
   const settings=state.tracks.map(({id,gain,pan,muted,solo})=>({id,gain,pan,muted,solo}));
   if(state.project.demo) localStorage.setItem(`audiolab-demo-${owner()}`,JSON.stringify({tracks:settings,transcript:state.project.transcript}));
-  else { const record=await database('projects','get',state.project.id); if(record) { const updated={...record,settings,transcript:state.project.transcript,updatedAt:Date.now()}; await database('projects','put',updated); uploadProject(updated,false).catch(()=>toast('Saved here. Cloud sync will retry next time.',true)); } }
+  else { const updated={...state.project,settings,transcript:state.project.transcript,updatedAt:Date.now()};await uploadProject(updated,false);state.project=updated;const index=state.projects.findIndex(project=>project.id===updated.id);if(index>=0)state.projects[index]=updated; }
 }
 function drawAll() {
   requestAnimationFrame(()=>{
@@ -292,7 +284,7 @@ async function importFile(file) {
   if (!session.user || session.user.status !== 'active') { state.user = null; await refreshLibrary(); await loadDemo(); render(); showAuth(); throw new Error('Your session ended. Sign in to import audio.'); }
   if(file.size>100*1024**2)throw new Error('Choose a file smaller than 100 MB.');
   const used=state.projects.reduce((s,p)=>s+p.size,0)+state.exports.reduce((s,p)=>s+p.size,0);
-  if(used+file.size>2*1024**3)throw new Error('Your local allowance is full. Remove a project or export first.');
+  if(used+file.size>2*1024**3)throw new Error('Your account allowance is full. Remove a project or export first.');
   if(!file.size)throw new Error('This file is empty.');
   state.loading=true;toast('Opening your audio. This may take a moment…');
   try {
@@ -300,8 +292,7 @@ async function importFile(file) {
     try{buffer=await engine.decode(bytes.slice(0));}catch{throw new Error('This browser cannot decode that file. Try WAV, MP3, or a supported audio/video codec.');}
     if(buffer.duration>600)throw new Error('Choose a recording shorter than 10 minutes.');
     const now=Date.now();const record={id:crypto.randomUUID(),owner:owner(),name:file.name.replace(/\.[^.]+$/,''),filename:file.name,bytes,size:file.size,duration:buffer.duration,createdAt:now,updatedAt:now,transcript:''};
-    await database('projects','put',record);await refreshLibrary();setProject(record,buffer,[{id:'original',name:'Original audio',buffer,gain:1,pan:0,muted:false,solo:false,color:'#AF719D'}]);state.page='workspace';render();toast('Your sound is in. Synchronizing…');
-    try { await uploadProject(record,true); toast('Project synchronized.'); } catch { toast('Saved here. Cloud sync will retry next time.',true); }
+    await uploadProject(record,true);await refreshLibrary();setProject(record,buffer,[{id:'original',name:'Original audio',buffer,gain:1,pan:0,muted:false,solo:false,color:'#AF719D'}]);state.page='workspace';render();toast('Project saved to Neon.');
   }finally{state.loading=false;$('#file-input').value='';}
 }
 function passwordField(name, label, autocomplete, confirmation = false) {
@@ -310,7 +301,7 @@ function passwordField(name, label, autocomplete, confirmation = false) {
 function showAuth(){
   if(state.user){showModal(`<div class="modal-symbol">${icon('shield')}</div><h2>Your little corner of AudioLab.</h2><p>Signed in as <strong>${escapeHtml(state.user.name)}</strong>.</p><div class="account-modal-actions"><button class="button primary" data-action="account-settings">Account settings</button><button class="button secondary" data-action="logout">Sign out</button></div>`);return;}
   const register=state.authMode==='register';
-  showModal(`<div class="modal-symbol">${icon('wave')}</div><div class="eyebrow">WELCOME TO YOUR CREATIVE SPACE</div><h2>${register?(state.setupRequired?'Make yourself at home.':'Find your sound with us.'):'Good to have you back.'}</h2><p>${state.setupRequired?'The first account becomes the administrator of this local workspace.':register?'New accounts need administrator approval before signing in.':'Sign in to import audio and save your projects on this device.'}</p><form id="auth-form">${register?'<label>Your name<input name="name" required maxlength="80" autocomplete="name" placeholder="Jamie Lee"></label>':''}<label>Email address<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>${passwordField('password', 'Password', register ? 'new-password' : 'current-password')}${register ? passwordField('confirmPassword', 'Confirm password', 'new-password', true) : ''}<div class="form-error" role="alert"></div><button class="button primary full-width" type="submit">${register?'Create account':'Sign in'} ${icon('arrow')}</button></form><div class="auth-switch">${register?'Already have an account?':'New here?'} <button class="text-button" data-action="switch-auth">${register?'Sign in':'Create an account'}</button></div>`);
+  showModal(`<div class="modal-symbol">${icon('wave')}</div><div class="eyebrow">WELCOME TO YOUR CREATIVE SPACE</div><h2>${register?(state.setupRequired?'Make yourself at home.':'Find your sound with us.'):'Good to have you back.'}</h2><p>${state.setupRequired?'The first account becomes the workspace administrator.':register?'New accounts need administrator approval before signing in.':'Sign in to access your projects and exports in Neon.'}</p><form id="auth-form">${register?'<label>Your name<input name="name" required maxlength="80" autocomplete="name" placeholder="Jamie Lee"></label>':''}<label>Email address<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>${passwordField('password', 'Password', register ? 'new-password' : 'current-password')}${register ? passwordField('confirmPassword', 'Confirm password', 'new-password', true) : ''}<div class="form-error" role="alert"></div><button class="button primary full-width" type="submit">${register?'Create account':'Sign in'} ${icon('arrow')}</button></form><div class="auth-switch">${register?'Already have an account?':'New here?'} <button class="text-button" data-action="switch-auth">${register?'Sign in':'Create an account'}</button></div>`);
 }
 function showExport(){
   if(!state.mix)return;
@@ -349,7 +340,7 @@ document.addEventListener('click',async event=>{
     else if(action==='account') {state.authMode=state.setupRequired?'register':'login';showAuth();}
     else if(action==='switch-auth'){state.authMode=state.authMode==='login'?'register':'login';showAuth();}
     else if(action==='toggle-password'){const input=$(`#${button.dataset.target}`);const revealed=input.type==='text';input.type=revealed?'password':'text';button.setAttribute('aria-label',`${revealed?'Show':'Hide'} ${input.closest('label').childNodes[0].textContent.trim().toLowerCase()}`);button.setAttribute('aria-pressed',String(!revealed));button.innerHTML=icon(revealed?'eye':'eyeOff');input.focus();}
-    else if(action==='logout'){await api('/api/logout',{});state.user=null;state.page='workspace';closeModal();await refreshLibrary();await loadDemo();render();toast('Signed out. Your projects stay on this device.');}
+    else if(action==='logout'){await api('/api/logout',{});state.user=null;state.page='workspace';closeModal();await refreshLibrary();await loadDemo();render();toast('Signed out. Your projects remain in your account.');}
     else if(action==='account-settings'){closeModal();state.page='settings';render();}
     else if(action==='export')showExport();
     else if(action==='ai-separation')unavailable('separation');
@@ -358,11 +349,11 @@ document.addEventListener('click',async event=>{
     else if(action==='manual-transcript'){closeModal();state.page='workspace';state.tab='transcript';render();}
     else if(action==='save-transcript'){state.project.transcript=$('#transcript-text').value;await saveProject();toast('Your words are saved.');}
     else if(action==='download-transcript'){const text=$('#transcript-text').value;if(!text.trim())throw new Error('Add some text before downloading.');download(new Blob([text],{type:'text/plain;charset=utf-8'}),`${state.project.name}.txt`);}
-    else if(action==='download-export'){const record=await database('exports','get',button.dataset.id);if(!record||record.owner!==owner())throw new Error('Export not found.');download(record.blob,record.name);}
-    else if(action==='delete-project'||action==='delete-export'){const store=action==='delete-project'?'projects':'exports';showModal(`<div class="modal-symbol">${icon('trash')}</div><h2>Make room for what’s next?</h2><p>This removes the ${store==='projects'?'project and its synchronized audio':'export'} from ${store==='projects'?'every device signed into this account':'this browser'}. Downloaded files${store==='projects'?' and separate exports':''} are kept.</p><div class="account-modal-actions"><button class="button secondary" data-action="close-modal">Keep it</button><button class="button danger" data-action="confirm-delete" data-store="${store}" data-id="${button.dataset.id}">Delete ${store==='projects'?'project':'export'}</button></div>`);}
-    else if(action==='confirm-delete'){const store=button.dataset.store;const record=await database(store,'get',button.dataset.id);if(!record||record.owner!==owner())throw new Error('Item not found.');if(store==='projects')await api('/api/projects/delete',{id:record.id});await database(store,'delete',button.dataset.id);if(store==='projects'&&state.project.id===button.dataset.id)await loadDemo();await refreshLibrary();closeModal();render();toast(store==='projects'?'Removed from your synchronized projects.':'Removed from this browser.');}
+    else if(action==='download-export'){const record=state.exports.find(item=>item.id===button.dataset.id);if(!record)throw new Error('Export not found.');const bytes=await downloadCloudBytes('exports',record);download(new Blob([bytes],{type:'audio/wav'}),record.name);}
+    else if(action==='delete-project'||action==='delete-export'){const store=action==='delete-project'?'projects':'exports';showModal(`<div class="modal-symbol">${icon('trash')}</div><h2>Make room for what’s next?</h2><p>This removes the ${store==='projects'?'project and its audio':'export'} from your Neon account and every signed-in device. Downloaded files are kept.</p><div class="account-modal-actions"><button class="button secondary" data-action="close-modal">Keep it</button><button class="button danger" data-action="confirm-delete" data-store="${store}" data-id="${button.dataset.id}">Delete ${store==='projects'?'project':'export'}</button></div>`);}
+    else if(action==='confirm-delete'){const store=button.dataset.store,records=store==='projects'?state.projects:state.exports,record=records.find(item=>item.id===button.dataset.id);if(!record)throw new Error('Item not found.');await api(`/api/${store}/delete`,{id:record.id});if(store==='projects'&&state.project.id===button.dataset.id)await loadDemo();await refreshLibrary();closeModal();render();toast('Removed from your Neon account.');}
     else if(['approve','suspend','reject'].includes(action)){await api('/api/admin/users',{id:button.dataset.id,status:{approve:'active',suspend:'suspended',reject:'rejected'}[action]});await loadAdmin();toast('Account status updated.');}
-    else if(action==='project-info'){showModal(`<div class="modal-symbol">${icon('music')}</div><h2>${escapeHtml(state.project.name)}</h2><p>${state.project.demo?'An original 48-second instrumental composed in this application. Four synthesized layers: melody, drums, bass, and atmosphere.':'Your original file is synchronized to your account. Mixing creates a new WAV file and does not change the source.'}</p><div class="settings-list"><div><span>Duration</span><strong>${formatTime(state.mix.duration)}</strong></div><div><span>Storage</span><strong>${state.project.demo?'Generated locally':'Browser + cloud'}</strong></div></div>`);}
+    else if(action==='project-info'){showModal(`<div class="modal-symbol">${icon('music')}</div><h2>${escapeHtml(state.project.name)}</h2><p>${state.project.demo?'An original 48-second instrumental composed in this application. Four synthesized layers: melody, drums, bass, and atmosphere.':'Your original file is stored in Neon. Mixing creates a new WAV file and does not change the source.'}</p><div class="settings-list"><div><span>Duration</span><strong>${formatTime(state.mix.duration)}</strong></div><div><span>Storage</span><strong>${state.project.demo?'Generated locally':'Neon Postgres'}</strong></div></div>`);}
     else if(action==='notifications'){showModal(`<div class="modal-symbol">${icon('bell')}</div><h2>You’re all caught up.</h2><p>${state.exports.length?`${state.exports.length} audio export${state.exports.length===1?' is':'s are'} ready in your export center.`:'Your workspace is ready. Import a track or explore the demo to get started.'}</p>${state.user?.role==='admin'?'<div class="info-box">Visit Settings → User approvals from the sidebar to review new registrations.</div>':''}`);}
     else if(action==='help'){showModal(`<div class="modal-symbol">${icon('headphones')}</div><h2>A little tour of your studio.</h2><ol class="help-steps"><li><strong>Meet the demo.</strong> Play the original session and explore its four composed layers.</li><li><strong>Bring your own sound.</strong> Create an account, then upload a browser-supported audio or video file.</li><li><strong>Find your balance.</strong> Adjust track level, pan, mute, and solo in Remix studio.</li><li><strong>Make it yours.</strong> Export a stereo WAV with trim and fades.</li></ol><div class="info-box">AI separation, automatic transcription, remote URL import, and additional output encoders need processing integrations. This build keeps audio on your device.</div><p class="fine-print">Keyboard: Space to play/pause. / to search. Escape to close a dialog.</p>`);}
     updatePlayback();
@@ -390,7 +381,7 @@ document.addEventListener('submit',async event=>{
       delete values.confirmPassword;
       const result=await api(state.authMode==='register'?'/api/register':'/api/login',values);
       if(result.pending){showModal(`<div class="modal-symbol">${icon('clock')}</div><h2>You’re on the list.</h2><p>${escapeHtml(result.message)}</p><button class="button primary full-width" data-action="close-modal">Explore the demo</button>`);}
-      else{state.user=result.user;state.setupRequired=false;await syncProjects();await refreshLibrary();await loadDemo();closeModal();render();toast(`Welcome, ${state.user.name.split(' ')[0]}. Your projects are synchronized.`);}
+      else{state.user=result.user;state.setupRequired=false;await migrateBrowserData();await refreshLibrary();await loadDemo();closeModal();render();toast(`Welcome, ${state.user.name.split(' ')[0]}. Your Neon library is ready.`);}
     }
     if(form.id==='export-form'){
       button.innerHTML='<span class="spinner"></span> Rendering your sound…';
@@ -402,7 +393,7 @@ document.addEventListener('submit',async event=>{
       const name=values.filename.trim().replace(/[<>:"/\\|?*\u0000-\u001F]/g,'_');if(!name)throw new Error('Enter a file name.');
       const blob=new Blob([encodeWav(buffer)],{type:'audio/wav'});
       const record={id:crypto.randomUUID(),owner:owner(),name:`${name}.wav`,blob,size:blob.size,createdAt:Date.now(),projectId:state.project.id};
-      await database('exports','put',record);await refreshLibrary();download(blob,record.name);closeModal();render();toast('Your mix is ready. Saved in Export center.');
+      await uploadExport(record);await refreshLibrary();download(blob,record.name);closeModal();render();toast('Your mix is ready and saved to Neon.');
     }
   }catch(e){if(error)error.textContent=e.message;else toast(e.message,true);}
   finally{button.disabled=false;if(form.id==='export-form')button.innerHTML=`${icon('download')} Export & download`;}
@@ -420,7 +411,7 @@ async function init(){
     const status=await api('/api/status');state.user=status.user;state.setupRequired=status.setupRequired;
     const loadingStatus = $('#startup-status');
     if (loadingStatus) loadingStatus.textContent = 'Gathering your projects…';
-    if(state.user)try{await syncProjects();}catch(error){console.error('Project sync failed:',error);}
+    if(state.user)await migrateBrowserData();
     await refreshLibrary();
     if (loadingStatus) loadingStatus.textContent = 'Setting the mood. Preparing your sound…';
     await loadDemo();render();

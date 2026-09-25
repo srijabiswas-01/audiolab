@@ -36,13 +36,13 @@ npm.cmd start
 - Track level, stereo pan, mute, solo, reset, synchronized playback, and saved mix settings.
 - WAV conversion/export, start/end trimming, fade in/out, and selectable sample rate. Output is 16-bit stereo PCM WAV.
 - Manual transcript editing, saved text, and TXT download.
-- Account-synchronized project and audio persistence, browser-local export persistence, project/export deletion, and download of saved exports.
+- Neon-backed project, source audio, settings, transcript, and export persistence across signed-in browsers and devices.
 
 ## First use
 
 1. Explore the demo without signing in.
 2. Click **New project** to create the first administrator account. There is no default password. First-admin creation only accepts a connection from localhost.
-3. Select **New project**, then upload a supported audio or video file. Files are saved in this browser after import.
+3. Select **New project**, then upload a supported audio or video file. Files are saved to the signed-in account in Neon.
 4. Open **Analysis** for measurements or **Remix studio** for track controls.
 5. Choose **Export audio** to trim, add fades, render, save, and download a WAV.
 6. Later registrations are pending until approved under **User approvals** in the admin sidebar.
@@ -51,9 +51,9 @@ npm.cmd start
 
 Account hashes, sessions, and approval logs are stored in Neon Postgres. Set `DATABASE_URL` in `.env` to the Neon connection string before starting the server. Passwords use salted scrypt; session cookies are HttpOnly and SameSite=Strict, with a 24-hour lifetime. The server limits authentication attempts, checks JSON request origins, and only serves explicitly allowed public files.
 
-Audio and project settings are cached in IndexedDB and synchronized through authenticated, chunked API requests to Neon Postgres. Projects follow the signed-in account across browsers and devices when those deployments use the same `DATABASE_URL`. Exports remain in the current browser, and demo mix settings use localStorage. Browser storage is not a security boundary against someone with access to the browser profile or developer tools. Use separate browser/OS profiles on shared devices.
+Projects, source audio, mix settings, transcripts, and exports are stored in Neon Postgres through authenticated, chunked API requests. They follow the signed-in account across browsers and devices when every deployment uses the same `DATABASE_URL`. IndexedDB is consulted only to migrate records created by older versions, and each migrated record is removed from IndexedDB after Neon accepts it. Demo mix settings and visual preferences use localStorage.
 
-The 2 GB allowance is an application limit, not a guarantee of browser storage availability. Browser data may be cleared or evicted. Download important work separately. Export creates a new file and preserves the original. Track levels can exceed full scale; reduce them if a mix distorts. Listening volume affects preview only, not export.
+The 2 GB allowance is an application limit, not a Neon plan quota. Download important work separately. Export creates a new file and preserves the original. Track levels can exceed full scale; reduce them if a mix distorts. Listening volume affects preview only, not export.
 
 ## Explicit integration boundaries
 
