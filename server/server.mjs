@@ -4,6 +4,7 @@ import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { sql, initializeDatabase } from './db.mjs';
+import { handleExportApi, handleProjectApi } from './project-api.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const publicRoot = path.resolve(root, '../public');
@@ -23,7 +24,7 @@ async function current(req) {
 }
 async function jsonBody(req) {
   let body = '';
-  for await (const part of req) { body += part; if (body.length > 16384) throw Object.assign(new Error('Request too large.'), { status: 413 }); }
+  for await (const part of req) { body += part; if (body.length > 800000) throw Object.assign(new Error('Request too large.'), { status: 413 }); }
   try { return JSON.parse(body || '{}'); } catch { throw Object.assign(new Error('Invalid JSON.'), { status: 400 }); }
 }
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
@@ -43,7 +44,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'GET' && url.pathname === '/api/status') {
         const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
-        return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false } });
+        return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, cloudProjects: true, wavExport: true, separation: false, transcription: false } });
       }
       if (req.method === 'POST' && ['/api/register', '/api/login'].includes(url.pathname)) {
         const key = req.socket.remoteAddress;
@@ -80,6 +81,14 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && url.pathname === '/api/logout') {
         await sql`DELETE FROM sessions WHERE token = ${cookieToken(req) || ''}`;
         return send(res, 200, { ok: true }, { 'Set-Cookie': 'studio_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
+      }
+      if (url.pathname.startsWith('/api/projects')) {
+        await handleProjectApi(req, res, url, await current(req), jsonBody, send, fail);
+        return;
+      }
+      if (url.pathname.startsWith('/api/exports')) {
+        await handleExportApi(req, res, url, await current(req), jsonBody, send, fail);
+        return;
       }
       if (url.pathname.startsWith('/api/admin/')) {
         const user = await current(req);

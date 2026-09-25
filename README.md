@@ -36,7 +36,7 @@ npm.cmd start
 - Track level, stereo pan, mute, solo, reset, synchronized playback, and saved mix settings.
 - WAV conversion/export, start/end trimming, fade in/out, and selectable sample rate. Output is 16-bit stereo PCM WAV.
 - Manual transcript editing, saved text, and TXT download.
-- Browser-local project and export persistence, project/export deletion, and download of saved exports.
+- Account-synchronized project and audio persistence, browser-local export persistence, project/export deletion, and download of saved exports.
 
 ## First use
 
@@ -51,7 +51,7 @@ npm.cmd start
 
 Account hashes, sessions, and approval logs are stored in Neon Postgres. Set `DATABASE_URL` in `.env` to the Neon connection string before starting the server. Passwords use salted scrypt; session cookies are HttpOnly and SameSite=Strict, with a 24-hour lifetime. The server limits authentication attempts, checks JSON request origins, and only serves explicitly allowed public files.
 
-Audio, project settings, and exports are stored in IndexedDB in the current browser, partitioned by the signed-in account identifier. Demo mix settings use localStorage. Imported audio is not uploaded to the server. Different browsers and devices will not share project libraries. Browser storage is not a security boundary against someone with access to the browser profile or developer tools. Use separate browser/OS profiles on shared devices.
+Audio and project settings are cached in IndexedDB and synchronized through authenticated, chunked API requests to Neon Postgres. Projects follow the signed-in account across browsers and devices when those deployments use the same `DATABASE_URL`. Exports remain in the current browser, and demo mix settings use localStorage. Browser storage is not a security boundary against someone with access to the browser profile or developer tools. Use separate browser/OS profiles on shared devices.
 
 The 2 GB allowance is an application limit, not a guarantee of browser storage availability. Browser data may be cleared or evicted. Download important work separately. Export creates a new file and preserves the original. Track levels can exceed full scale; reduce them if a mix distorts. Listening volume affects preview only, not export.
 
@@ -67,7 +67,7 @@ These features have informative UI states, but **are not implemented processing 
 
 The demo does not stand in for processing uploaded audio. For real AI and universal media handling, add FFmpeg plus tested separation/ASR providers in background workers, with private object storage and a durable job queue. No external service keys are required or configured in this build.
 
-This is a **local application foundation**, not a production internet deployment. Before public hosting, implement email verification and recovery, admin MFA, HTTPS, durable server-side project storage and access control, backups/retention, upload and worker sandboxing, and operational monitoring. The default listener is localhost. `HOST`, `PORT`, `DATA_DIR`, and `COOKIE_SECURE=true` are supported environment settings; changing the listener alone does not make the system production-ready.
+This is an application foundation, not a fully hardened production deployment. Before broad public hosting, implement email verification and recovery, admin MFA, dedicated private object storage for large audio libraries, backups/retention, upload and worker sandboxing, and operational monitoring. The default listener is localhost. `HOST`, `PORT`, `DATA_DIR`, and `COOKIE_SECURE=true` are supported environment settings; changing the listener alone does not make the system production-ready.
 
 ## Tests
 

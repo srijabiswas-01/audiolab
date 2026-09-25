@@ -29,6 +29,15 @@ test('account approval, authorization, session revocation and private server fil
   const adminCookie = adminResponse.headers.get('set-cookie').split(';')[0];
   assert.ok(adminResponse.headers.get('set-cookie').includes('HttpOnly'));
   assert.equal((await adminResponse.json()).user.role, 'admin');
+  const project = { id: '11111111-1111-4111-8111-111111111111', name: 'Synced test', filename: 'test.wav', size: 3, duration: 1, transcript: '', settings: [], createdAt: Date.now(), updatedAt: Date.now(), chunks: 1, resetChunks: true };
+  assert.equal((await request('/api/projects', project, adminCookie)).status, 200);
+  assert.equal((await request('/api/projects/chunk', { id: project.id, index: 0, data: 'AQID' }, adminCookie)).status, 200);
+  const projectList = await (await request('/api/projects', undefined, adminCookie)).json();
+  assert.equal(projectList.projects.length, 1); assert.equal(projectList.projects[0].name, 'Synced test');
+  assert.equal((await (await request(`/api/projects/${project.id}/chunks/0`, undefined, adminCookie)).json()).data, 'AQID');
+  assert.equal((await request('/api/projects/delete', { id: project.id }, adminCookie)).status, 200);
+  const deletedList = await (await request('/api/projects', undefined, adminCookie)).json();
+  assert.equal(deletedList.projects.length, 0); assert.equal(deletedList.deleted[0].id, project.id);
   const registered = await request('/api/register', { name: 'Artist', email: 'artist@example.test', password: 'secure-example-456' });
   assert.equal(registered.status, 201); assert.equal((await registered.json()).pending, true);
   assert.equal((await request('/api/login', { email: 'artist@example.test', password: 'secure-example-456' })).status, 403);

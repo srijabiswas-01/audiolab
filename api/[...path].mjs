@@ -1,5 +1,6 @@
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql, initializeDatabase } from '../server/db.mjs';
+import { handleExportApi, handleProjectApi } from '../server/project-api.mjs';
 
 await initializeDatabase();
 
@@ -21,7 +22,7 @@ async function jsonBody(req) {
   let body = '';
   for await (const part of req) {
     body += part;
-    if (body.length > 16384) fail('Request too large.', 413);
+    if (body.length > 800000) fail('Request too large.', 413);
   }
   try { return JSON.parse(body || '{}'); } catch { fail('Invalid JSON.', 400); }
 }
@@ -45,7 +46,7 @@ export default async function handler(req, res) {
     }
     if (req.method === 'GET' && url.pathname === '/api/status') {
       const [{ n }] = await sql`SELECT count(*)::int AS n FROM users`;
-      return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, wavExport: true, separation: false, transcription: false } });
+      return send(res, 200, { setupRequired: n === 0, user: cleanUser(await current(req)) || null, capabilities: { localAudio: true, cloudProjects: true, wavExport: true, separation: false, transcription: false } });
     }
     if (req.method === 'POST' && ['/api/register', '/api/login'].includes(url.pathname)) {
       const key = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
@@ -83,6 +84,14 @@ export default async function handler(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/logout') {
       await sql`DELETE FROM sessions WHERE token = ${cookieToken(req) || ''}`;
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'studio_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Secure' });
+    }
+    if (url.pathname.startsWith('/api/projects')) {
+      await handleProjectApi(req, res, url, await current(req), jsonBody, send, fail);
+      return;
+    }
+    if (url.pathname.startsWith('/api/exports')) {
+      await handleExportApi(req, res, url, await current(req), jsonBody, send, fail);
+      return;
     }
     if (url.pathname.startsWith('/api/admin/')) {
       const user = await current(req);
