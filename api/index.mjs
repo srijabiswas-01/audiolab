@@ -39,6 +39,8 @@ export default async function handler(req, res) {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   try {
     const url = new URL(req.url, 'https://localhost');
+    const routedPath = url.searchParams.get('__path');
+    if (routedPath) url.pathname = `/api/${routedPath.replace(/^\/+/, '')}`;
     if (!['GET', 'HEAD'].includes(req.method)) {
       const origin = req.headers.origin;
       if (origin && new URL(origin).host !== req.headers.host) fail('Cross-origin request rejected.', 403);

@@ -61,9 +61,17 @@ async function database(store, method, value) {
     transaction.oncomplete = () => resolve(request.result); transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error);
   });
 }
-async function api(path, body) {
+async function api(path, body, retry = true) {
   const response = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const result = await response.json(); if (!response.ok) throw new Error(result.error); return result;
+  if (body === undefined && retry && [502, 503, 504].includes(response.status)) return api(path, body, false);
+  const contentType = response.headers.get('content-type') || '';
+  const result = contentType.includes('application/json') ? await response.json() : null;
+  if (!response.ok) {
+    const message = result?.error || `AudioLab's service is temporarily unavailable (HTTP ${response.status}). Please try again.`;
+    throw new Error(message);
+  }
+  if (!result) throw new Error('AudioLab received an invalid response from the hosting service. Please try again.');
+  return result;
 }
 const CLOUD_CHUNK_SIZE = 512 * 1024;
 function bytesToBase64(bytes) {
